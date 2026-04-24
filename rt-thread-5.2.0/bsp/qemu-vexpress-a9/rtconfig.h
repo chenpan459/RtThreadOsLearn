@@ -3,12 +3,71 @@
 
 /* RT-Thread Kernel */
 
+/* klibc options */
+
+/* rt_vsnprintf options */
+
+/* end of rt_vsnprintf options */
+
+/* rt_vsscanf options */
+
+/* end of rt_vsscanf options */
+
+/* rt_memset options */
+
+/* end of rt_memset options */
+
+/* rt_memcpy options */
+
+/* end of rt_memcpy options */
+
+/* rt_memmove options */
+
+/* end of rt_memmove options */
+
+/* rt_memcmp options */
+
+/* end of rt_memcmp options */
+
+/* rt_strstr options */
+
+/* end of rt_strstr options */
+
+/* rt_strcasecmp options */
+
+/* end of rt_strcasecmp options */
+
+/* rt_strncpy options */
+
+/* end of rt_strncpy options */
+
+/* rt_strcpy options */
+
+/* end of rt_strcpy options */
+
+/* rt_strncmp options */
+
+/* end of rt_strncmp options */
+
+/* rt_strcmp options */
+
+/* end of rt_strcmp options */
+
+/* rt_strlen options */
+
+/* end of rt_strlen options */
+
+/* rt_strnlen options */
+
+/* end of rt_strnlen options */
+/* end of klibc options */
 #define RT_NAME_MAX 8
 #define RT_CPUS_NR 1
 #define RT_ALIGN_SIZE 8
 #define RT_THREAD_PRIORITY_256
 #define RT_THREAD_PRIORITY_MAX 256
 #define RT_TICK_PER_SECOND 100
+#define RT_USING_OVERFLOW_CHECK
 #define RT_USING_HOOK
 #define RT_HOOK_USING_FUNC_PTR
 #define RT_USING_IDLE_HOOK
@@ -18,18 +77,13 @@
 #define RT_TIMER_THREAD_PRIO 4
 #define RT_TIMER_THREAD_STACK_SIZE 4096
 
-/* kservice optimization */
+/* kservice options */
 
-/* end of kservice optimization */
-
-/* klibc optimization */
-
-/* end of klibc optimization */
+/* end of kservice options */
 #define RT_USING_DEBUG
 #define RT_DEBUGING_ASSERT
 #define RT_DEBUGING_COLOR
 #define RT_DEBUGING_CONTEXT
-#define RT_USING_OVERFLOW_CHECK
 
 /* Inter-Thread communication */
 
@@ -43,7 +97,6 @@
 
 /* Memory Management */
 
-#define RT_PAGE_MAX_ORDER 11
 #define RT_USING_MEMPOOL
 #define RT_USING_SMALL_MEM
 #define RT_USING_MEMHEAP
@@ -157,6 +210,13 @@
 #define RT_SFUD_USING_FLASH_INFO_TABLE
 #define RT_SFUD_SPI_MAX_HZ 50000000
 #define RT_USING_WDT
+#define RT_USING_BLK
+
+/* Partition Types */
+
+#define RT_BLK_PARTITION_DFS
+#define RT_BLK_PARTITION_EFI
+/* end of Partition Types */
 #define RT_USING_PIN
 #define RT_USING_KTIME
 /* end of Device Drivers */
@@ -196,12 +256,73 @@
 
 /* Socket is in the 'Network' category */
 
+#define RT_USING_POSIX_SOCKET
+
 /* end of Interprocess Communication (IPC) */
 /* end of POSIX (Portable Operating System Interface) layer */
 /* end of C/C++ and POSIX layer */
 
 /* Network */
 
+#define RT_USING_SAL
+#define SAL_INTERNET_CHECK
+
+/* Docking with protocol stacks */
+
+#define SAL_USING_LWIP
+/* end of Docking with protocol stacks */
+#define SAL_USING_POSIX
+#define RT_USING_NETDEV
+#define NETDEV_USING_IFCONFIG
+#define NETDEV_USING_PING
+#define NETDEV_USING_NETSTAT
+#define NETDEV_USING_AUTO_DEFAULT
+#define NETDEV_IPV4 1
+#define NETDEV_IPV6 0
+#define RT_USING_LWIP
+#define RT_USING_LWIP203
+#define RT_USING_LWIP_VER_NUM 0x20003
+#define RT_LWIP_MEM_ALIGNMENT 4
+#define RT_LWIP_IGMP
+#define RT_LWIP_ICMP
+#define RT_LWIP_DNS
+#define RT_LWIP_DHCP
+#define IP_SOF_BROADCAST 1
+#define IP_SOF_BROADCAST_RECV 1
+
+/* Static IPv4 Address (same subnet as peer 172.21.65.240 for routing) */
+
+#define RT_LWIP_IPADDR "172.21.65.100"
+#define RT_LWIP_GWADDR "172.21.65.1"
+#define RT_LWIP_MSKADDR "255.255.255.0"
+/* end of Static IPv4 Address */
+#define RT_LWIP_UDP
+#define RT_LWIP_TCP
+#define RT_LWIP_RAW
+#define RT_MEMP_NUM_NETCONN 8
+#define RT_LWIP_PBUF_NUM 16
+#define RT_LWIP_RAW_PCB_NUM 4
+#define RT_LWIP_UDP_PCB_NUM 4
+#define RT_LWIP_TCP_PCB_NUM 4
+#define RT_LWIP_TCP_SEG_NUM 40
+#define RT_LWIP_TCP_SND_BUF 8196
+#define RT_LWIP_TCP_WND 8196
+#define RT_LWIP_TCPTHREAD_PRIORITY 10
+#define RT_LWIP_TCPTHREAD_MBOX_SIZE 8
+#define RT_LWIP_TCPTHREAD_STACKSIZE 8192
+#define RT_LWIP_ETHTHREAD_PRIORITY 12
+#define RT_LWIP_ETHTHREAD_STACKSIZE 8192
+#define RT_LWIP_ETHTHREAD_MBOX_SIZE 8
+#define LWIP_NETIF_STATUS_CALLBACK 1
+#define LWIP_NETIF_LINK_CALLBACK 1
+#define RT_LWIP_NETIF_NAMESIZE 6
+#define SO_REUSE 1
+#define LWIP_SO_RCVTIMEO 1
+#define LWIP_SO_SNDTIMEO 1
+#define LWIP_SO_RCVBUF 1
+#define LWIP_SO_LINGER 1
+#define LWIP_NETIF_LOOPBACK 0
+#define RT_LWIP_USING_PING
 /* end of Network */
 
 /* Memory protection */
@@ -217,6 +338,16 @@
 #define RT_USING_ADT_HASHMAP
 #define RT_USING_ADT_REF
 /* end of Utilities */
+
+/* Memory management */
+
+#define RT_PAGE_AFFINITY_BLOCK_SIZE 0x1000
+#define RT_PAGE_MAX_ORDER 11
+
+/* Debugging */
+
+/* end of Debugging */
+/* end of Memory management */
 
 /* Using USB legacy version */
 
@@ -324,6 +455,38 @@
 /* Kendryte SDK */
 
 /* end of Kendryte SDK */
+
+/* WCH HAL & SDK Drivers */
+
+/* end of WCH HAL & SDK Drivers */
+
+/* AT32 HAL & SDK Drivers */
+
+/* end of AT32 HAL & SDK Drivers */
+
+/* HC32 DDL Drivers */
+
+/* end of HC32 DDL Drivers */
+
+/* NXP HAL & SDK Drivers */
+
+/* end of NXP HAL & SDK Drivers */
+
+/* NUVOTON Drivers */
+
+/* end of NUVOTON Drivers */
+
+/* GD32 Drivers */
+
+/* end of GD32 Drivers */
+
+/* HPMicro SDK */
+
+/* end of HPMicro SDK */
+
+/* FT32 HAL & SDK Drivers */
+
+/* end of FT32 HAL & SDK Drivers */
 /* end of HAL & SDK Drivers */
 
 /* sensors drivers */
@@ -404,18 +567,6 @@
 /* end of Arduino libraries */
 /* end of RT-Thread online packages */
 
-/* Privated Packages of RealThread */
-
-
-/* Network Utilities */
-
-/* end of Network Utilities */
-
-/* RT-Thread Smart */
-
-/* end of RT-Thread Smart */
-/* end of Privated Packages of RealThread */
-
 /* Hardware Drivers Config */
 
 #define SOC_VEXPRESS_A9
@@ -424,6 +575,7 @@
 
 #define RT_USING_UART0
 #define RT_USING_UART1
+#define BSP_DRV_EMAC
 /* end of Onboard Peripheral Drivers */
 /* end of Hardware Drivers Config */
 
