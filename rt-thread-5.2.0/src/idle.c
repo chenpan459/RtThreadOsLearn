@@ -21,6 +21,13 @@
  * 2023-12-10     xqyjlj       add _hook_spinlock
  */
 
+/*
+ * 本文件职责（中文概要）：
+ * - 为每个逻辑 CPU 创建最低优先级的 idle 线程（tidle0…），无其它就绪线程时运行。
+ * - 在 idle 循环中可选执行 idle hook、电源管理；单核或非 SMART 下调用 rt_defunct_execute() 回收已退出线程。
+ * - SMP：从核 idle 进入 rt_hw_secondary_cpu_idle_exec()；主核仍走通用循环；各核 idle 与 rt_cpu->idle_thread 绑定。
+ */
+
 #include <rthw.h>
 #include <rtthread.h>
 
@@ -35,6 +42,7 @@
 #endif /* RT_USING_HOOK */
 
 #ifndef IDLE_THREAD_STACK_SIZE
+/* 有 idle hook 或堆时 idle 栈略大，便于在 hook 里做稍多工作 */
 #if defined (RT_USING_IDLE_HOOK) || defined(RT_USING_HEAP)
 #define IDLE_THREAD_STACK_SIZE  256
 #else
@@ -44,6 +52,7 @@
 
 #define _CPUS_NR                RT_CPUS_NR
 
+/* 每颗 CPU 一个 idle 线程及其栈（UP 时仅 [0] 有效） */
 static struct rt_thread idle_thread[_CPUS_NR];
 rt_align(RT_ALIGN_SIZE)
 static rt_uint8_t idle_thread_stack[_CPUS_NR][IDLE_THREAD_STACK_SIZE];
@@ -66,6 +75,7 @@ static struct rt_spinlock _hook_spinlock;
  *         -RT_EFULL: hook list is full.
  *
  * @note the hook function must be simple and never be blocked or suspend.
+ * @note 中文：在空闲链表中注册回调，须短小不可阻塞；与 delhook 共用 _hook_spinlock 保护表项。
  */
 rt_err_t rt_thread_idle_sethook(void (*hook)(void))
 {
@@ -97,6 +107,7 @@ rt_err_t rt_thread_idle_sethook(void (*hook)(void))
  *
  * @return RT_EOK: delete OK.
  *         -RT_ENOSYS: hook was not found.
+ * @note 中文：从固定大小表中移除指定指针；未找到返回 -RT_ENOSYS。
  */
 rt_err_t rt_thread_idle_delhook(void (*hook)(void))
 {
@@ -127,6 +138,7 @@ static void idle_thread_entry(void *parameter)
 {
     RT_UNUSED(parameter);
 #ifdef RT_USING_SMP
+    /* 从核：不跑主核的 hook/defunct 路径，由平台实现 WFI/自旋等低功耗或让步 */
     if (rt_cpu_get_id() != 0)
     {
         while (1)
@@ -136,6 +148,7 @@ static void idle_thread_entry(void *parameter)
     }
 #endif /* RT_USING_SMP */
 
+    /* 主核（或 UP 唯一核）：标准 idle 循环 */
     while (1)
     {
 #ifdef RT_USING_IDLE_HOOK
@@ -153,11 +166,13 @@ static void idle_thread_entry(void *parameter)
 #endif /* RT_USING_IDLE_HOOK */
 
 #if !defined(RT_USING_SMP) && !defined(RT_USING_SMART)
+    /* 单核且无 SMART：在 idle 里消费延迟销毁队列（SMP/SMART 由 defunct.c 的 tsystem 线程负责） */
     rt_defunct_execute();
 #endif
 
 #ifdef RT_USING_PM
         void rt_system_power_manager(void);
+        /* 电源管理模块：可在空闲时进入更低功耗状态 */
         rt_system_power_manager();
 #endif /* RT_USING_PM */
     }
@@ -167,6 +182,7 @@ static void idle_thread_entry(void *parameter)
  * @brief This function will initialize idle thread, then start it.
  *
  * @note this function must be invoked when system init.
+ * @note 中文：为每个 CPU 创建优先级为 RT_THREAD_PRIORITY_MAX-1 的 idle，写入 rt_cpu_index(i)->idle_thread 并启动。
  */
 void rt_thread_idle_init(void)
 {
@@ -184,6 +200,7 @@ void rt_thread_idle_init(void)
 #if RT_NAME_MAX > 0
         rt_snprintf(idle_thread_name, RT_NAME_MAX, "tidle%d", i);
 #endif /* RT_NAME_MAX > 0 */
+        /* 优先级最低档减 1，保证 idle 仅在没有其它就绪线程时运行 */
         rt_thread_init(&idle_thread[i],
 #if RT_NAME_MAX > 0
                 idle_thread_name,
@@ -197,10 +214,12 @@ void rt_thread_idle_init(void)
                 RT_THREAD_PRIORITY_MAX - 1,
                 32);
 #ifdef RT_USING_SMP
+        /* 每个 idle 固定跑在对应物理/逻辑核上 */
         rt_thread_control(&idle_thread[i], RT_THREAD_CTRL_BIND_CPU, (void*)i);
 #endif /* RT_USING_SMP */
 
         /* update */
+        /* 供调度器与统计模块快速取得本 CPU 的 idle 线程指针 */
         rt_cpu_index(i)->idle_thread = &idle_thread[i];
 
         /* startup */
@@ -210,6 +229,7 @@ void rt_thread_idle_init(void)
 
 /**
  * @brief This function will get the handler of the idle thread.
+ * @note 中文：内部调用 rt_cpu_get_id()，须满足其调用约束（绑核/关中断/调度未就绪等之一）。
  */
 rt_thread_t rt_thread_idle_gethandler(void)
 {

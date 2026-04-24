@@ -19,6 +19,23 @@
  * 2013-07-15     Grissiom     optimize rt_memheap_realloc
  * 2021-06-03     Flybreak     Fix the crash problem after opening Oz optimization on ac6.
  * 2023-03-01     Bernard      Fix the alignment issue for minimal size
+ *
+ * ---------------------------------------------------------------------------
+ * RT-Thread memheap（RT_USING_MEMHEAP）说明
+ * ---------------------------------------------------------------------------
+ * 与 small mem（mem.c）不同：memheap 用「物理块」双向环链表 block_list（next/prev）
+ * 描述整池布局，另用「空闲块」双向环链表 free_list（next_free/prev_free）加速分配；
+ * 已用块不在 free_list 上。magic 高 31 位为 RT_MEMHEAP_MAGIC，最低位区分 USED/FREED。
+ *
+ * 池尾设一已用「尾块」并首尾相接，阻止与池外内存误合并。分配时从 free_list
+ * 扫描首个够大的空闲块，可分裂则留后置空闲头并挂回 free_list。
+ *
+ * heap->locked：为 RT_TRUE 时 alloc/free/realloc 不再 rt_sem_take/release（由外层
+ * 如 kservice 在 RT_USING_MEMHEAP_AS_HEAP 下已对 system_heap 加全局堆锁时使用，
+ * 避免同一线程重复拿信号量死锁）。
+ *
+ * RT_MEMHEAP_BEST_MODE：释放插入空闲链时按块大小有序插入，使分配略偏「最佳适配」
+ * 策略（仍从表头扫描，非完整 best-fit）。
  */
 
 #include <rthw.h>
@@ -29,6 +46,8 @@
 #define DBG_TAG           "kernel.memheap"
 #define DBG_LVL           DBG_INFO
 #include <rtdbg.h>
+
+/* magic 与 RT_MEMHEAP_USED 组合存于 item->magic；MEMITEM_SIZE 为用户区字节数 */
 
 /* dynamic pool magic and mask */
 #define RT_MEMHEAP_MAGIC        0x1ea01ea0
@@ -43,6 +62,7 @@
 #define MEMITEM_SIZE(item)      ((rt_uintptr_t)item->next - (rt_uintptr_t)item - RT_MEMHEAP_SIZE)
 #define MEMITEM(ptr)            (struct rt_memheap_item*)((rt_uint8_t*)ptr - RT_MEMHEAP_SIZE)
 
+/* 从物理链与空闲链同时摘除 next_ptr（AC6 -Oz 下易踩优化坑，勿随意内联改写） */
 static void _remove_next_ptr(volatile struct rt_memheap_item *next_ptr)
 {
     /* Fix the crash problem after opening Oz optimization on ac6  */
@@ -75,6 +95,8 @@ static void _remove_next_ptr(volatile struct rt_memheap_item *next_ptr)
  * @param   size is the size of the memheap.
  *
  * @return  RT_EOK
+ * @note    中文：free_header 为空闲环哨兵；首块为整块空闲；尾块 USED 且 next/prev
+ *          指向首块形成物理环。信号量初值 1 作堆互斥，locked 默认 RT_FALSE。
  */
 rt_err_t rt_memheap_init(struct rt_memheap *memheap,
                          const char        *name,
@@ -160,6 +182,7 @@ RTM_EXPORT(rt_memheap_init);
  * @param   heap is a pointer of memheap object.
  *
  * @return  RT_EOK
+ * @note    中文：detach 信号量与内核对象；不释放 start_addr 指向的物理内存。
  */
 rt_err_t rt_memheap_detach(struct rt_memheap *heap)
 {
@@ -183,6 +206,8 @@ RTM_EXPORT(rt_memheap_detach);
  * @param   size is the minimum size of the requested block in bytes.
  *
  * @return  the pointer to allocated memory or NULL if no free memory was found.
+ * @note    中文：heap->locked==RT_TRUE 时假定调用方已持堆锁，不再申请信号量。
+ *          空闲链上顺序找首个 free_size>=size；余量够则分裂否则整块占用。
  */
 void *rt_memheap_alloc(struct rt_memheap *heap, rt_size_t size)
 {
@@ -218,7 +243,7 @@ void *rt_memheap_alloc(struct rt_memheap *heap, rt_size_t size)
             }
         }
 
-        /* get the first free memory block */
+        /* 沿空闲环顺序找第一块容量 >= size（非 best-fit，实现简单） */
         header_ptr = heap->free_list->next_free;
         while (header_ptr != heap->free_list && free_size < size)
         {
@@ -358,6 +383,8 @@ RTM_EXPORT(rt_memheap_alloc);
  * @param newsize is the required new size.
  *
  * @return the changed memory block address.
+ * @note    中文：扩大时若后继为空闲且总空间够则原地扩展并可能再切出右邻空闲；
+ *          否则 alloc+memcpy+free。缩小且余量够则原地分裂并把尾部挂回 free_list。
  */
 void *rt_memheap_realloc(struct rt_memheap *heap, void *ptr, rt_size_t newsize)
 {
@@ -587,9 +614,11 @@ RTM_EXPORT(rt_memheap_realloc);
 
 /**
  * @brief This function will release the allocated memory block by
- *        rt_malloc. The released memory block is taken back to system heap.
+ *        rt_memheap_alloc. The released memory block is taken back to system heap.
  *
  * @param ptr the address of memory which will be released.
+ * @note    中文：校验 magic 防越界写；标记空闲后与左/右空闲邻居合并；若仅与右
+ *          合并则从原右块摘除 free 链节点。新释放块按策略插入 free_list。
  */
 void rt_memheap_free(void *ptr)
 {
@@ -731,6 +760,7 @@ RTM_EXPORT(rt_memheap_free);
 * @param used is a pointer to get the size of memory used.
 *
 * @param max_used is a pointer to get the maximum memory used.
+* @note   中文：used = pool_size - available_size；各输出指针可为 NULL。
 */
 void rt_memheap_info(struct rt_memheap *heap,
                      rt_size_t *total,
@@ -768,8 +798,10 @@ void rt_memheap_info(struct rt_memheap *heap,
 
 #ifdef RT_USING_MEMHEAP_AS_HEAP
 /*
- * rt_malloc port function
-*/
+ * kservice 将 rt_malloc/_free/_realloc 映射到下列函数；AUTO_BINDING 时本堆失败
+ * 可遍历其它 MemHeap 对象再试分配（多堆扩展）。
+ */
+
 void *_memheap_alloc(struct rt_memheap *heap, rt_size_t size)
 {
     void *ptr;
@@ -807,17 +839,12 @@ void *_memheap_alloc(struct rt_memheap *heap, rt_size_t size)
     return ptr;
 }
 
-/*
- * rt_free port function
-*/
 void _memheap_free(void *rmem)
 {
     rt_memheap_free(rmem);
 }
 
-/*
- * rt_realloc port function
-*/
+/* 若本池 rt_memheap_realloc 失败且 newsize 非 0，可 fallback 到其它堆整块搬迁 */
 void *_memheap_realloc(struct rt_memheap *heap, void *rmem, rt_size_t newsize)
 {
     void *new_ptr;
@@ -861,6 +888,8 @@ void *_memheap_realloc(struct rt_memheap *heap, void *rmem, rt_size_t newsize)
 #endif
 
 #ifdef RT_USING_MEMTRACE
+/* MSH：memheapcheck 校验 magic/pool/next-prev；memheaptrace 打印块链与 owner */
+
 static int memheapcheck(int argc, char *argv[])
 {
     struct rt_object_information *info;

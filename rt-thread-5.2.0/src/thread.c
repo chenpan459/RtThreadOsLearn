@@ -35,6 +35,17 @@
  * 2023-09-15     xqyjlj       perf rt_hw_interrupt_disable/enable
  * 2023-12-10     xqyjlj       fix thread_exit/detach/delete
  *                             fix rt_thread_delay
+ *
+ * ---------------------------------------------------------------------------
+ * 模块说明（内核线程 thread.c）
+ * ---------------------------------------------------------------------------
+ * 负责线程对象生命周期：静态 rt_thread_init / 堆上 rt_thread_create，经
+ * rt_thread_startup 进入调度；退出路径 _thread_exit 关闭线程、解互斥、投入
+ * defunct 队列由 idle 回收。阻塞与延时通过 thread_timer + _thread_timeout 唤醒。
+ *
+ * 挂起/恢复与 scheduler_comm / scheduler_* 协作：IPC 使用 rt_thread_suspend_to_list
+ * 挂到 susp 链表；rt_thread_resume 经 rt_sched_thread_ready 入就绪队列。关闭线程
+ * 用 rt_thread_close 摘调度器与分离定时器，detach/delete 再处理对象与栈内存。
  */
 
 #include <rthw.h>
@@ -55,6 +66,7 @@ static void (*rt_thread_resume_hook) (rt_thread_t thread);
  * @note    The hook function must be simple and never be blocked or suspend.
  *
  * @param   hook is the specified hook function.
+ * @note    中文：在 rt_thread_suspend_to_list 末尾调用；须短小不可阻塞。
  */
 void rt_thread_suspend_sethook(void (*hook)(rt_thread_t thread))
 {
@@ -67,6 +79,7 @@ void rt_thread_suspend_sethook(void (*hook)(rt_thread_t thread))
  * @note    The hook function must be simple and never be blocked or suspend.
  *
  * @param   hook is the specified hook function.
+ * @note    中文：在 rt_thread_resume 成功路径末尾调用。
  */
 void rt_thread_resume_sethook(void (*hook)(rt_thread_t thread))
 {
@@ -77,6 +90,7 @@ RT_OBJECT_HOOKLIST_DEFINE(rt_thread_inited);
 #endif /* defined(RT_USING_HOOK) && defined(RT_HOOK_USING_FUNC_PTR) */
 
 #ifdef RT_USING_MUTEX
+/* 线程退出/删除前：从等待的互斥量队列摘除，并逐个 release 已持有的 mutex */
 static void _thread_detach_from_mutex(rt_thread_t thread)
 {
     rt_list_t *node;
@@ -114,6 +128,7 @@ static void _thread_detach_from_mutex(rt_thread_t thread)
 static void _thread_detach_from_mutex(rt_thread_t thread) {}
 #endif
 
+/* 栈底注册的退出例程：关线程、清 mutex、进 defunct，再 schedule 切走 */
 static void _thread_exit(void)
 {
     struct rt_thread *thread;
@@ -142,6 +157,7 @@ static void _thread_exit(void)
  *          when thread is timeout to wait some resource.
  *
  * @param   parameter is the parameter of thread timeout function
+ * @note    中文：thread_timer 到期时调用；从挂起链摘下并入就绪，置 -RT_ETIMEOUT。
  */
 static void _thread_timeout(void *parameter)
 {
@@ -184,6 +200,7 @@ static rt_err_t _thread_init(struct rt_thread *thread,
 {
     RT_UNUSED(name);
 
+    /* 调度上下文、栈魔数、thread_timer、信号/LWP 等字段的集中初始化 */
     rt_sched_thread_init_ctx(thread, tick, priority);
 
 #ifdef RT_USING_MEM_PROTECTION
@@ -324,6 +341,7 @@ static rt_err_t _thread_init(struct rt_thread *thread,
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：静态线程；先清零 TCB 再 rt_object_init；须再 rt_thread_startup 才参与调度。
  */
 rt_err_t rt_thread_init(struct rt_thread *thread,
                         const char       *name,
@@ -360,6 +378,7 @@ RTM_EXPORT(rt_thread_init);
  * @brief   This function will return self thread object.
  *
  * @return  The self thread object.
+ * @note    中文：SMP 下可选用 rt_hw_thread_self 或关本地中断读 current，避免撕裂。
  */
 rt_thread_t rt_thread_self(void)
 {
@@ -389,6 +408,7 @@ RTM_EXPORT(rt_thread_self);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：要求 INIT 态；rt_sched_thread_startup 填优先级掩码后 rt_thread_resume。
  */
 rt_err_t rt_thread_startup(rt_thread_t thread)
 {
@@ -420,6 +440,8 @@ RTM_EXPORT(rt_thread_startup);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：关本线程时须已在临界区内（ASSERT）；摘就绪、detach 定时器、stat=CLOSE，
+ *          不进入 defunct（与 detach/delete 区分）。
  */
 rt_err_t rt_thread_close(rt_thread_t thread)
 {
@@ -466,6 +488,7 @@ static rt_err_t _thread_detach(rt_thread_t thread);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：仅静态线程对象；内部 _thread_detach 与 delete 共用回收逻辑。
  */
 rt_err_t rt_thread_detach(rt_thread_t thread)
 {
@@ -478,6 +501,7 @@ rt_err_t rt_thread_detach(rt_thread_t thread)
 }
 RTM_EXPORT(rt_thread_detach);
 
+/* close + 解 mutex + defunct_enqueue；静态 detach 与堆 delete 共用此路径 */
 static rt_err_t _thread_detach(rt_thread_t thread)
 {
     rt_err_t error;
@@ -519,6 +543,7 @@ static rt_err_t _thread_detach(rt_thread_t thread)
  *
  * @return  If the return value is a rt_thread structure pointer, the function is successfully executed.
  *          If the return value is RT_NULL, it means this operation failed.
+ * @note    中文：分配 TCB 与栈；失败时回滚。创建后仍为 INIT，须 rt_thread_startup。
  */
 rt_thread_t rt_thread_create(const char *name,
                              void (*entry)(void *parameter),
@@ -568,6 +593,7 @@ RTM_EXPORT(rt_thread_create);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：仅堆线程；走 _thread_detach，idle 回收栈与对象。
  */
 rt_err_t rt_thread_delete(rt_thread_t thread)
 {
@@ -588,6 +614,7 @@ RTM_EXPORT(rt_thread_delete);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：重置时间片并置 YIELD，再 unlock_n_resched 触发同优先级轮转。
  */
 rt_err_t rt_thread_yield(void)
 {
@@ -610,6 +637,8 @@ RTM_EXPORT(rt_thread_yield);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：RT_INTERRUPTIBLE 挂起并启动 thread_timer；超时到期后 _thread_timeout
+ *          置 error=-RT_ETIMEOUT，此处若仍为 ETIMEOUT 则清为 RT_EOK。
  */
 static rt_err_t _thread_sleep(rt_tick_t tick)
 {
@@ -672,6 +701,7 @@ static rt_err_t _thread_sleep(rt_tick_t tick)
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：即 _thread_sleep，tick==0 返回 -RT_EINVAL。
  */
 rt_err_t rt_thread_delay(rt_tick_t tick)
 {
@@ -688,6 +718,7 @@ RTM_EXPORT(rt_thread_delay);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：绝对节拍等待；若已错过窗口则仅更新 *tick 不睡眠。返回 thread->error。
  */
 rt_err_t rt_thread_delay_until(rt_tick_t *tick, rt_tick_t inc_tick)
 {
@@ -750,6 +781,7 @@ RTM_EXPORT(rt_thread_delay_until);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：毫秒转 tick 后走 _thread_sleep。
  */
 rt_err_t rt_thread_mdelay(rt_int32_t ms)
 {
@@ -783,6 +815,8 @@ RTM_EXPORT(rt_thread_mdelay);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：CHANGE_PRIORITY 持调度锁改优先级；CLOSE 对静态 detach/堆 delete 并
+ *          rt_schedule；BIND_CPU 转 rt_sched_thread_bind_cpu。
  */
 rt_err_t rt_thread_control(rt_thread_t thread, int cmd, void *arg)
 {
@@ -845,6 +879,7 @@ RTM_EXPORT(rt_thread_control);
 #include <lwp_signal.h>
 #endif
 
+/* 将 stat 的挂起子状态写为 INTERRUPTIBLE/KILLABLE/UNINTERRUPTIBLE 之一 */
 static void _thread_set_suspend_state(struct rt_thread *thread, int suspend_flag)
 {
     rt_uint8_t stat = RT_THREAD_SUSPEND_UNINTERRUPTIBLE;
@@ -893,6 +928,8 @@ static void _thread_set_suspend_state(struct rt_thread *thread, int suspend_flag
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：仅允许 thread==rt_thread_self()；摘就绪、设挂起子状态、入 susp_list、
+ *          停 thread_timer。SMART 下可先因信号放弃挂起返回 -RT_EINTR。
  */
 rt_err_t rt_thread_suspend_to_list(rt_thread_t thread, rt_list_t *susp_list, int ipc_flags, int suspend_flag)
 {
@@ -987,6 +1024,7 @@ RTM_EXPORT(rt_thread_suspend_to_list);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：等价 suspend_to_list(..., RT_NULL, 0, flag)，仅挂起不入 IPC 链表。
  */
 rt_err_t rt_thread_suspend_with_flag(rt_thread_t thread, int suspend_flag)
 {
@@ -1007,6 +1045,7 @@ RTM_EXPORT(rt_thread_suspend);
  *
  * @return  Return the operation status. If the return value is RT_EOK, the function is successfully executed.
  *          If the return value is any other values, it means this operation failed.
+ * @note    中文：rt_sched_thread_ready 失败则不解锁 resched；-RT_ESCHEDLOCKED 视为成功。
  */
 rt_err_t rt_thread_resume(rt_thread_t thread)
 {
@@ -1054,6 +1093,7 @@ RTM_EXPORT(rt_thread_resume);
  * @param thread the thread to be resumed
  *
  * @return the operation status, RT_EOK on OK, -RT_ERROR on error
+ * @note    中文：若已注册 wakeup_handle.func 则调自定义回调；否则退化为 resume。
  */
 rt_err_t rt_thread_wakeup(rt_thread_t thread)
 {
@@ -1081,6 +1121,7 @@ rt_err_t rt_thread_wakeup(rt_thread_t thread)
 }
 RTM_EXPORT(rt_thread_wakeup);
 
+/* 为 Smart 等场景设置一次性唤醒回调，由 rt_thread_wakeup 在持锁下取出并清空 */
 void rt_thread_wakeup_set(struct rt_thread *thread, rt_wakeup_func_t func, void* user_data)
 {
     rt_sched_lock_level_t slvl;
@@ -1104,6 +1145,7 @@ RTM_EXPORT(rt_thread_wakeup_set);
  *
  * @return  If the return value is a rt_thread structure pointer, the function is successfully executed.
  *          If the return value is RT_NULL, it means this operation failed.
+ * @note    中文：封装 rt_object_find，勿在中断服务程序中调用。
  */
 rt_thread_t rt_thread_find(char *name)
 {
@@ -1123,6 +1165,7 @@ RTM_EXPORT(rt_thread_find);
  *
  * @return  If the return value is RT_EOK, the function is successfully executed
  *          If the return value is -RT_EINVAL, it means this operation failed
+ * @note    中文：委托 rt_object_get_name；勿在中断里调用。
  */
 rt_err_t rt_thread_get_name(rt_thread_t thread, char *name, rt_uint8_t name_size)
 {

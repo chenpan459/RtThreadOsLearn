@@ -8,6 +8,19 @@
  * Change Logs:
  * Date           Author       Notes
  * 2024-01-18     Shell        Separate scheduling related codes from thread.c, scheduler_.*
+ *
+ * ---------------------------------------------------------------------------
+ * 模块说明（调度公共逻辑 scheduler_comm.c）
+ * ---------------------------------------------------------------------------
+ * 本文件从 thread.c 拆出，提供「线程调度上下文」的读写封装：RT_SCHED_CTX 多为
+ * 可变的运行态（stat、SMP 绑核等），RT_SCHED_PRIV 多为时间片与优先级等调度
+ * 私有字段。除明确说明外，下列例程均假定调用方已持有调度器锁，并由
+ * RT_SCHED_DEBUG_IS_LOCKED 在调试配置下断言。
+ *
+ * rt_sched_thread_ready 与线程定时器、挂起链表存在竞态，需先停掉挂起路径
+ * 上设置的 timeout 定时器再入就绪队列。rt_sched_tick_increase 在剩余时间片
+ * 耗尽时置 YIELD 并触发 unlock+resched。栈溢出检测依赖栈底/顶写入的魔数
+ * '#'（或硬件栈保护），与栈增长方向宏配合。
  */
 
 #define DBG_TAG           "kernel.sched"
@@ -16,6 +29,7 @@
 
 #include <rtthread.h>
 
+/* 新建线程时初始化调度侧上下文：INIT 态 + SMP 未绑核 + 私有 tick/prio */
 void rt_sched_thread_init_ctx(struct rt_thread *thread, rt_uint32_t tick, rt_uint8_t priority)
 {
     /* setup thread status */
@@ -30,6 +44,7 @@ void rt_sched_thread_init_ctx(struct rt_thread *thread, rt_uint32_t tick, rt_uin
     rt_sched_thread_init_priv(thread, tick, priority);
 }
 
+/* 标记本线程挂起路径上已挂起 thread_timer（实际 start 在别处完成时配合） */
 rt_err_t rt_sched_thread_timer_start(struct rt_thread *thread)
 {
     RT_SCHED_DEBUG_IS_LOCKED;
@@ -37,6 +52,7 @@ rt_err_t rt_sched_thread_timer_start(struct rt_thread *thread)
     return RT_EOK;
 }
 
+/* 若在挂起时设过超时定时器，则 stop 并清 sched_flag_ttmr_set，避免与 resume 竞态 */
 rt_err_t rt_sched_thread_timer_stop(struct rt_thread *thread)
 {
     rt_err_t error;
@@ -56,6 +72,7 @@ rt_err_t rt_sched_thread_timer_stop(struct rt_thread *thread)
     return error;
 }
 
+/* 返回 (stat & RT_THREAD_STAT_MASK)，供查询 RUN/CLOSE 等主状态 */
 rt_uint8_t rt_sched_thread_get_stat(struct rt_thread *thread)
 {
     RT_SCHED_DEBUG_IS_LOCKED;
@@ -70,12 +87,13 @@ rt_uint8_t rt_sched_thread_get_curr_prio(struct rt_thread *thread)
 
 rt_uint8_t rt_sched_thread_get_init_prio(struct rt_thread *thread)
 {
-    /* read only fields, so lock is unecessary */
+    /* init_priority 创建后不变，无需调度锁即可读 */
     return RT_SCHED_PRIV(thread).init_priority;
 }
 
 /**
- * @note Caller must hold the scheduler lock
+ * @brief 判断线程是否处于挂起类状态（suspend 掩码全置）。
+ * @note 调用方须已持调度器锁（RT_SCHED_DEBUG_IS_LOCKED）。
  */
 rt_uint8_t rt_sched_thread_is_suspended(struct rt_thread *thread)
 {
@@ -83,6 +101,7 @@ rt_uint8_t rt_sched_thread_is_suspended(struct rt_thread *thread)
     return (RT_SCHED_CTX(thread).stat & RT_THREAD_SUSPEND_MASK) == RT_THREAD_SUSPEND_MASK;
 }
 
+/* 将线程标为 CLOSE，供后续清理路径使用 */
 rt_err_t rt_sched_thread_close(struct rt_thread *thread)
 {
     RT_SCHED_DEBUG_IS_LOCKED;
@@ -90,6 +109,7 @@ rt_err_t rt_sched_thread_close(struct rt_thread *thread)
     return RT_EOK;
 }
 
+/* 时间片耗尽路径：恢复 remaining_tick 为 init_tick 并置 YIELD，请求让出 CPU */
 rt_err_t rt_sched_thread_yield(struct rt_thread *thread)
 {
     RT_SCHED_DEBUG_IS_LOCKED;
@@ -100,6 +120,7 @@ rt_err_t rt_sched_thread_yield(struct rt_thread *thread)
     return RT_EOK;
 }
 
+/* 从挂起链表唤醒入就绪队列：须先停超时定时器，避免 ISR 与 resume 双抢 */
 rt_err_t rt_sched_thread_ready(struct rt_thread *thread)
 {
     rt_err_t error;
@@ -144,6 +165,7 @@ rt_err_t rt_sched_thread_ready(struct rt_thread *thread)
     return error;
 }
 
+/* 当前线程时间片扣减；耗尽则 yield 并在持锁情况下请求一次抢占调度 */
 rt_err_t rt_sched_tick_increase(rt_tick_t tick)
 {
     struct rt_thread *thread;
@@ -179,6 +201,9 @@ rt_err_t rt_sched_tick_increase(rt_tick_t tick)
 
 /**
  * @brief Update priority of the target thread
+ * @note 中文：调用方须持调度器锁。若线程已在就绪态则摘队、改 current_priority、
+ *       重算 number_mask/high_mask，将 stat 置 INIT 后经 rt_sched_insert_thread 再入队；
+ *       非就绪则仅更新优先级域，避免破坏挂起/延时等状态。
  */
 rt_err_t rt_sched_thread_change_priority(struct rt_thread *thread, rt_uint8_t priority)
 {
@@ -225,6 +250,7 @@ rt_err_t rt_sched_thread_change_priority(struct rt_thread *thread, rt_uint8_t pr
 }
 
 #ifdef RT_USING_OVERFLOW_CHECK
+/* 在上下文切换等路径调用：检查 '#' 哨兵与 sp 是否在栈区间内；Smart 用户栈特例跳过 */
 void rt_scheduler_stack_check(struct rt_thread *thread)
 {
     RT_ASSERT(thread != RT_NULL);
@@ -233,7 +259,7 @@ void rt_scheduler_stack_check(struct rt_thread *thread)
 #ifndef ARCH_MM_MMU
     struct rt_lwp *lwp = thread ? (struct rt_lwp *)thread->lwp : 0;
 
-    /* if stack pointer locate in user data section skip stack check. */
+    /* 无 MMU 时 SP 可能落在进程 data 段表示在用户态上下文，不做内核栈魔数校验 */
     if (lwp && ((rt_uint32_t)thread->sp > (rt_uint32_t)lwp->data_entry &&
     (rt_uint32_t)thread->sp <= (rt_uint32_t)lwp->data_entry + (rt_uint32_t)lwp->data_size))
     {

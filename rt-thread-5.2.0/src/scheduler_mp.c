@@ -34,6 +34,22 @@
  * 2024-01-05     Shell        Fixup of data racing in rt_critical_level
  * 2024-01-18     Shell        support rt_sched_thread of scheduling status for better mt protection
  * 2024-01-18     Shell        support rt_hw_thread_self to improve overall performance
+ *
+ * ---------------------------------------------------------------------------
+ * SMP 调度器（scheduler_mp.c）说明
+ * ---------------------------------------------------------------------------
+ * 每颗 CPU 维护本地就绪优先级表 rt_cpu::priority_table 与 priority_group；另
+ * 有全局 rt_thread_priority_table / rt_thread_ready_priority_group，供未绑核
+ * （bind_cpu==RT_CPUS_NR）的线程迁移，可在任意核上被选中。选下一个运行线程时
+ * 比较「全局最高就绪优先级」与「本核本地最高」，取数值更小（更紧迫）的一侧。
+ *
+ * 全局调度互斥由 _mp_scheduler_lock（rt_hw_spin_lock）配合每核 sched_lock_flag
+ * 实现：SCHEDULER_LOCK 关本地中断、递增当前线程 critical_lock_nest、再抢
+ * 自旋锁。插入/摘除就绪队列、上下文挑选等须在持锁路径内完成。
+ *
+ * 未绑核线程入队后会 rt_hw_ipi_send(RT_SCHEDULE_IPI) 通知其它核参与调度；绑核
+ * 线程仅更新目标 pcpu 的就绪表，必要时向 bind 核发 IPI。同优先级内时间片未
+ * 尽时 insert_after（下一轮优先），YIELD 后 insert_before（同轮靠后）。
  */
 
 #include <rtthread.h>
@@ -43,7 +59,9 @@
 #define DBG_LVL           DBG_INFO
 #include <rtdbg.h>
 
+/* 全局就绪链表头数组（未绑核线程）；与各 rt_cpu::priority_table[] 结构相同 */
 rt_list_t rt_thread_priority_table[RT_THREAD_PRIORITY_MAX];
+/* 保护就绪队列与挑选下一线程等跨核一致性的自旋锁 */
 static struct rt_spinlock _mp_scheduler_lock;
 
 #define SCHEDULER_LOCK_FLAG(percpu) ((percpu)->sched_lock_flag)
@@ -60,6 +78,7 @@ static struct rt_spinlock _mp_scheduler_lock;
         if (curthr) RT_SCHED_CTX(curthr).critical_lock_nest--; \
     } while (0)
 
+/* 以下为「调度器大锁」：先关本地 IRQ，再对当前线程做 critical 嵌套计数，最后抢 MP 锁 */
 #define SCHEDULER_CONTEXT_LOCK(percpu)               \
     do                                               \
     {                                                \
@@ -121,6 +140,7 @@ static rt_uint8_t rt_thread_ready_table[32];
 /**
  * Used only on scheduler for optimization of control flows, where the critical
  * region is already guaranteed.
+ * @note 中文：不经完整 spinlock API，假定调用方已在调度临界区内。
  */
 rt_inline void _fast_spin_lock(struct rt_spinlock *lock)
 {
@@ -155,6 +175,7 @@ static void (*rt_scheduler_switch_hook)(struct rt_thread *tid);
  *        switch happens.
  *
  * @param hook is the hook function.
+ * @note 中文：在选定 to_thread 且即将 rt_hw_context_switch 前调用。
  */
 void rt_scheduler_sethook(void (*hook)(struct rt_thread *from, struct rt_thread *to))
 {
@@ -166,6 +187,7 @@ void rt_scheduler_sethook(void (*hook)(struct rt_thread *from, struct rt_thread 
  *        switch happens.
  *
  * @param hook is the hook function.
+ * @note 中文：即将切离 from 线程、进入汇编切换前调用。
  */
 void rt_scheduler_switch_sethook(void (*hook)(struct rt_thread *tid))
 {
@@ -225,9 +247,7 @@ rt_inline rt_base_t _get_local_highest_ready_prio(struct rt_cpu* pcpu)
 
 #endif /* RT_THREAD_PRIORITY_MAX > 32 */
 
-/*
- * get the highest priority thread in ready queue
- */
+/* 在全局就绪与当前 CPU 本地就绪之间取更优优先级，并返回该优先级队列首线程 */
 static struct rt_thread* _scheduler_get_highest_priority_thread(rt_ubase_t *highest_prio)
 {
     struct rt_thread *highest_priority_thread;
@@ -268,6 +288,8 @@ static struct rt_thread* _scheduler_get_highest_priority_thread(rt_ubase_t *high
  * @brief   set READY and insert thread to ready queue
  *
  * @note    caller must holding the `_mp_scheduler_lock` lock
+ * @note    中文：RUNNING 且 oncpu 已占用时仅整理 stat（yield 恢复路径）；DETACHED
+ *          才入就绪表。未绑核走全局表并发 IPI 多核；绑核只改目标 pcpu 表并可单核 IPI。
  */
 static void _sched_insert_thread_locked(struct rt_thread *thread)
 {
@@ -353,7 +375,7 @@ static void _sched_insert_thread_locked(struct rt_thread *thread)
           RT_NAME_MAX, thread->parent.name, RT_SCHED_PRIV(thread).current_priority);
 }
 
-/* remove thread from ready queue */
+/* 从全局或绑核 CPU 的就绪链摘除，并维护 priority_group / 多级 ready_table 位图 */
 static void _sched_remove_thread_locked(struct rt_thread *thread)
 {
     LOG_D("%s [%.*s], the priority: %d", __func__,
@@ -399,6 +421,7 @@ static void _sched_remove_thread_locked(struct rt_thread *thread)
 
 /**
  * @brief This function will initialize the system scheduler.
+ * @note 中文：初始化全局与各 CPU 优先级链表头、MP 调度锁、每核 current/priority_group。
  */
 void rt_system_scheduler_init(void)
 {
@@ -449,6 +472,8 @@ void rt_system_scheduler_init(void)
 /**
  * @brief This function will startup the scheduler. It will select one thread
  *        with the highest priority level, then switch to it.
+ * @note 中文：释放历史 _cpus_lock、关中断后持调度锁摘出最高就绪线程，设 RUNNING
+ *       与 oncpu，再 rt_hw_context_switch_to 不再返回。
  */
 void rt_system_scheduler_start(void)
 {
@@ -509,6 +534,7 @@ void rt_system_scheduler_start(void)
  * @param param is not used, and can be set to RT_NULL.
  *
  * @note this function should be invoke or register as ISR in BSP.
+ * @note 中文：调度 IPI 入口，通常直接 rt_schedule() 触发本核抢占。
  */
 void rt_scheduler_ipi_handler(int vector, void *param)
 {
@@ -521,6 +547,7 @@ void rt_scheduler_ipi_handler(int vector, void *param)
  * @param plvl pointer to the object where lock level stores to
  *
  * @return rt_err_t RT_EOK
+ * @note 中文：保存 local_irq 状态到 *plvl；与 rt_sched_unlock / unlock_n_resched 配对。
  */
 rt_err_t rt_sched_lock(rt_sched_lock_level_t *plvl)
 {
@@ -541,6 +568,7 @@ rt_err_t rt_sched_lock(rt_sched_lock_level_t *plvl)
  * @param level the lock level of previous call to rt_sched_lock()
  *
  * @return rt_err_t RT_EOK
+ * @note 中文：仅释放锁，不主动触发重新调度（与 unlock_n_resched 对比）。
  */
 rt_err_t rt_sched_unlock(rt_sched_lock_level_t level)
 {
@@ -570,6 +598,9 @@ rt_bool_t rt_sched_is_locked(void)
  *
  * @note caller should hold the scheduler context lock. lock will be released
  *       before return from this routine
+ * @note 中文：若无就绪线程返回 NULL。否则比较当前 RUNNING 与最高就绪线程优先级、
+ *       YIELD/绑核等，决定继续占用本核或把 current 插回就绪队列；选中 to 后摘其
+ *       就绪节点并置 RUNNING/oncpu。返回非 NULL 时调用方负责 rt_hw_context_switch。
  */
 static rt_thread_t _prepare_context_switch_locked(int cpu_id,
                                                   struct rt_cpu *pcpu,
@@ -722,6 +753,7 @@ static void _sched_thread_process_signal(struct rt_thread *current_thread)
 #define SCHED_THREAD_PROCESS_SIGNAL(curthr)
 #endif /* RT_USING_SIGNALS */
 
+/* 与 rt_sched_lock 配对：在持锁状态下尝试切线程，退出后再处理信号 */
 rt_err_t rt_sched_unlock_n_resched(rt_sched_lock_level_t level)
 {
     struct rt_thread *to_thread;
@@ -807,6 +839,8 @@ rt_err_t rt_sched_unlock_n_resched(rt_sched_lock_level_t level)
  * @brief This function will perform one scheduling. It will select one thread
  *        with the highest priority level in global ready queue or local ready queue,
  *        then switch to it.
+ * @note 中文：线程上下文调用；若在中断嵌套内仅置 irq_switch_flag 延后到
+ *       rt_scheduler_do_irq_switch。critical_lock_nest>1 时置延迟切换标志。
  */
 void rt_schedule(void)
 {
@@ -816,7 +850,7 @@ void rt_schedule(void)
     struct rt_cpu    *pcpu;
     int              cpu_id;
 
-    /* enter ciritical region of percpu scheduling context */
+    /* enter critical region of percpu scheduling context */
     level = rt_hw_local_irq_disable();
 
     /* get percpu scheduling context */
@@ -893,6 +927,8 @@ void rt_schedule(void)
  * @brief This function checks whether a scheduling is needed after an IRQ context switching. If yes,
  *        it will select one thread with the highest priority level, and then switch
  *        to it.
+ * @note 中文：IRQ 出口路径；irq_switch_flag 为 0 则直接返回。使用
+ *       rt_hw_context_switch_interrupt 以适配中断现场保存的 context。
  */
 void rt_scheduler_do_irq_switch(void *context)
 {
@@ -974,6 +1010,7 @@ void rt_scheduler_do_irq_switch(void *context)
  *
  * @note  Please do not invoke this function in user application.
  *        Caller must hold the scheduler lock
+ * @note  中文：内部调用 _sched_insert_thread_locked，完成 READY 与全局/绑核入队及 IPI。
  */
 void rt_sched_insert_thread(struct rt_thread *thread)
 {
@@ -990,6 +1027,7 @@ void rt_sched_insert_thread(struct rt_thread *thread)
  * @param thread is the thread to be removed.
  *
  * @note  Please do not invoke this function in user application.
+ * @note  中文：须已持调度器锁；摘链后 stat 置 RT_THREAD_SUSPEND_UNINTERRUPTIBLE。
  */
 void rt_sched_remove_thread(struct rt_thread *thread)
 {
@@ -1002,7 +1040,7 @@ void rt_sched_remove_thread(struct rt_thread *thread)
     RT_SCHED_CTX(thread).stat = RT_THREAD_SUSPEND_UNINTERRUPTIBLE;
 }
 
-/* thread status initialization and setting up on startup */
+/* 线程创建阶段：链表节点、优先级/时间片、SMP 下 critical 嵌套清零；不入就绪队列 */
 
 void rt_sched_thread_init_priv(struct rt_thread *thread, rt_uint32_t tick, rt_uint8_t priority)
 {
@@ -1032,7 +1070,7 @@ void rt_sched_thread_init_priv(struct rt_thread *thread, rt_uint32_t tick, rt_ui
 
 }
 
-/* Normally, there isn't anyone racing with us so this operation is lockless */
+/* 启动前填充 number_mask 等位图字段，并置 SUSPEND，供 rt_thread_startup/resume 链使用 */
 void rt_sched_thread_startup(struct rt_thread *thread)
 {
 #if RT_THREAD_PRIORITY_MAX > 32
@@ -1051,6 +1089,8 @@ void rt_sched_thread_startup(struct rt_thread *thread)
  * @brief Update scheduling status of thread. this operation is taken as an
  *        atomic operation of the update of SP. Since the local irq is disabled,
  *        it's okay to assume that the stack will not be modified meanwhile.
+ * @note 中文：汇编切换完成后调用：将旧线程 critical 嵌套清零并释放调度自旋锁，
+ *       再更新 pcpu->current_thread。须在关本地中断下执行。
  */
 void rt_sched_post_ctx_switch(struct rt_thread *thread)
 {
@@ -1075,6 +1115,7 @@ void rt_sched_post_ctx_switch(struct rt_thread *thread)
 
 static volatile int _critical_error_occurred = 0;
 
+/* 调试：校验传入的 critical_level 与当前线程 nest 一致，防止错配锁 */
 void rt_exit_critical_safe(rt_base_t critical_level)
 {
     struct rt_cpu *pcpu = rt_cpu_self();
@@ -1100,6 +1141,7 @@ void rt_exit_critical_safe(rt_base_t critical_level)
 
 #else /* !RT_DEBUGING_CRITICAL */
 
+/* 发布版直接退临界区，不做 level 校验 */
 void rt_exit_critical_safe(rt_base_t critical_level)
 {
     RT_UNUSED(critical_level);
@@ -1123,6 +1165,8 @@ RTM_EXPORT(rt_exit_critical_safe);
 
 /**
  * @brief This function will lock the thread scheduler.
+ * @note 中文：递增当前线程 critical_lock_nest，阻止隐式抢占；与 rt_exit_critical
+ *       成对。无 current 时返回 -RT_EINVAL。
  */
 rt_base_t rt_enter_critical(void)
 {
@@ -1163,6 +1207,7 @@ RTM_EXPORT(rt_enter_critical);
 
 /**
  * @brief This function will unlock the thread scheduler.
+ * @note 中文：nest 归零时若存在 critical_switch_flag 则补一次 rt_schedule()。
  */
 void rt_exit_critical(void)
 {
@@ -1219,6 +1264,7 @@ RTM_EXPORT(rt_exit_critical);
  * @brief Get the scheduler lock level.
  *
  * @return the level of the scheduler lock. 0 means unlocked.
+ * @note 中文：关中断读取当前线程 nest；无线程时返回 0。
  */
 rt_uint16_t rt_critical_level(void)
 {
@@ -1245,6 +1291,10 @@ rt_uint16_t rt_critical_level(void)
 }
 RTM_EXPORT(rt_critical_level);
 
+/**
+ * @note 中文：cpu==RT_CPUS_NR 表示不绑核。READY 态需摘队改 bind 再插入；RUNNING
+ *       时可能发 IPI 促使目标核或本核重新调度。调用前须未持调度锁（DEBUG 检查）。
+ */
 rt_err_t rt_sched_thread_bind_cpu(struct rt_thread *thread, int cpu)
 {
     rt_sched_lock_level_t slvl;

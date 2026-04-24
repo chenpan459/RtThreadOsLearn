@@ -47,6 +47,23 @@
  *
  */
 
+/*
+ * ---------------------------------------------------------------------------
+ * RT-Thread small memory（RT_USING_SMALL_MEM）说明
+ * ---------------------------------------------------------------------------
+ * 算法源自 lwIP 的内存管理思路：整段连续堆区被划分为「头部 rt_small_mem_item +
+ * 用户区 + …」的链表；相邻空闲块由 plug_holes() 向前/向后合并。
+ *
+ * - pool_ptr：低 1 位标记已用(1)/空闲(0)，高位通过 MEM_MASK 保存所属
+ *   struct rt_small_mem *，便于从任意 mem 项反查堆对象（MEM_POOL）。
+ * - next / prev：相对 heap_ptr 的字节偏移（非 C 指针），便于整块堆重定位
+ *   时仍自洽；heap_end 为哨兵块，恒为「已用」并锁住堆尾。
+ * - lfree：指向当前已知「最靠前」的空闲块，分配时从此扫描以摊还复杂度；
+ *   释放后可能把 mem 更新为更小的 lfree。
+ * - 与 kservice 中系统堆配合：RT_USING_SMALL_MEM_AS_HEAP 时 rt_malloc 最终
+ *   调用本文件的 rt_smem_*，外层锁由 kservice 的 _heap_lock 负责。
+ */
+
 #include <rthw.h>
 #include <rtthread.h>
 
@@ -56,11 +73,12 @@
 #define DBG_LVL           DBG_INFO
 #include <rtdbg.h>
 
+/* 堆上每个「块」的控制头：紧跟用户指针 rmem 之前占 SIZEOF_STRUCT_MEM 字节 */
 struct rt_small_mem_item
 {
-    rt_uintptr_t            pool_ptr;         /**< small memory object addr */
-    rt_size_t               next;             /**< next free item */
-    rt_size_t               prev;             /**< prev free item */
+    rt_uintptr_t            pool_ptr;         /**< 低 1 位 used/free，高位为 small_mem 指针编码 */
+    rt_size_t               next;             /**< 下一块相对 heap_ptr 的字节偏移 */
+    rt_size_t               prev;             /**< 上一块相对 heap_ptr 的字节偏移 */
 #ifdef RT_USING_MEMTRACE
 #ifdef ARCH_CPU_64BIT
     rt_uint8_t              thread[8];       /**< thread name */
@@ -72,18 +90,21 @@ struct rt_small_mem_item
 
 /**
  * Base structure of small memory object
+ * @note 中文：继承 rt_memory 做内核对象登记；heap_ptr～heap_end 为可分配区间链表。
  */
 struct rt_small_mem
 {
     struct rt_memory            parent;                 /**< inherit from rt_memory */
-    rt_uint8_t                 *heap_ptr;               /**< pointer to the heap */
-    struct rt_small_mem_item   *heap_end;
-    struct rt_small_mem_item   *lfree;
-    rt_size_t                   mem_size_aligned;       /**< aligned memory size */
+    rt_uint8_t                 *heap_ptr;               /**< 堆区首地址（首块头所在） */
+    struct rt_small_mem_item   *heap_end;               /**< 尾哨兵，不占用户数据 */
+    struct rt_small_mem_item   *lfree;                   /**< 当前扫描起点（最前空闲块） */
+    rt_size_t                   mem_size_aligned;       /**< 可参与分配的对齐后总字节数 */
 };
 
+/* 分裂后剩余空闲区至少能再放一个带用户区的最小块，避免产生无法承载数据的碎片头 */
 #define MIN_SIZE (sizeof(rt_uintptr_t) + sizeof(rt_size_t) + sizeof(rt_size_t))
 
+/* 地址按字对齐时最低位恒 0，借给 used/free 标志复用 */
 #define MEM_MASK ((~(rt_size_t)0) - 1)
 
 #define MEM_USED(_mem)       ((((rt_uintptr_t)(_mem)) & MEM_MASK) | 0x1)
@@ -116,6 +137,7 @@ rt_inline void rt_smem_setname(struct rt_small_mem_item *mem, const char *name)
 }
 #endif /* RT_USING_MEMTRACE */
 
+/* 将 mem 与相邻空闲块合并为一块，并修正 lfree 若指向被合并子块 */
 static void plug_holes(struct rt_small_mem *m, struct rt_small_mem_item *mem)
 {
     struct rt_small_mem_item *nmem;
@@ -166,6 +188,8 @@ static void plug_holes(struct rt_small_mem *m, struct rt_small_mem_item *mem)
  * @param size is the size of the memory.
  *
  * @return Return a pointer to the memory object. When the return value is RT_NULL, it means the init failed.
+ * @note 中文：begin_addr 上先放 rt_small_mem 控制体，堆区两端各留一块头：首块为
+ *       大空闲、尾块为 MEM_USED 哨兵，防止链表越界；返回的是 rt_smem_t 即 &parent。
  */
 rt_smem_t rt_smem_init(const char    *name,
                      void          *begin_addr,
@@ -240,6 +264,7 @@ RTM_EXPORT(rt_smem_init);
  * @param m the small memory management object.
  *
  * @return RT_EOK
+ * @note 中文：从内核对象链表摘除；不释放底层 RAM，静态堆慎用 detach。
  */
 rt_err_t rt_smem_detach(rt_smem_t m)
 {
@@ -267,6 +292,8 @@ RTM_EXPORT(rt_smem_detach);
  * @param size is the minimum size of the requested block in bytes.
  *
  * @return the pointer to allocated memory or NULL if no free memory was found.
+ * @note 中文：从 lfree 起沿 next 找首个够大的空闲块；够大则分裂出后置空闲头，
+ *       否则整块占用；返回 mem 头之后的用户对齐首址。
  */
 void *rt_smem_alloc(rt_smem_t m, rt_size_t size)
 {
@@ -394,11 +421,13 @@ RTM_EXPORT(rt_smem_alloc);
  *
  * @param m the small memory management object.
  *
- * @param rmem is the pointer to memory allocated by rt_mem_alloc.
+ * @param rmem is the pointer to memory allocated by rt_smem_alloc.
  *
  * @param newsize is the required new size.
  *
  * @return the changed memory block address.
+ * @note 中文：newsize==0 等价 free；缩小且余量够则原地分裂并 plug_holes；
+ *       扩大或无法原地满足则新 alloc + memcpy + free 旧块。
  */
 void *rt_smem_realloc(rt_smem_t m, void *rmem, rt_size_t newsize)
 {
@@ -490,9 +519,11 @@ RTM_EXPORT(rt_smem_realloc);
 
 /**
  * @brief This function will release the previously allocated memory block by
- *        rt_mem_alloc. The released memory block is taken back to system heap.
+ *        rt_smem_alloc. The released memory block is taken back to system heap.
  *
  * @param rmem the address of memory which will be released.
+ * @note 中文：rmem 必须为 rt_smem_alloc 返回的对齐指针；标记空闲后减 used 并
+ *       plug_holes 与邻居合并。
  */
 void rt_smem_free(void *rmem)
 {
@@ -543,6 +574,8 @@ RTM_EXPORT(rt_smem_free);
 #include <finsh.h>
 
 #ifdef RT_USING_MEMTRACE
+/* MSH：memcheck 校验链表与 MEM_POOL 一致性；memtrace 打印各块占用者与大小 */
+
 static int memcheck(int argc, char *argv[])
 {
     int position;

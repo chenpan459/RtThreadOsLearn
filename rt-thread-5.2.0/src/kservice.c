@@ -28,6 +28,25 @@
  * 2023-10-21     Shell        support the common backtrace API which is arch-independent
  * 2023-12-10     xqyjlj       perf rt_hw_interrupt_disable/enable, fix memheap lock
  * 2024-03-10     Meco Man     move std libc related functions to rtklibc
+ *
+ * ---------------------------------------------------------------------------
+ * 模块说明（内核公共服务 kservice）
+ * ---------------------------------------------------------------------------
+ * 本文件集中实现与「板级弱符号、控制台输出、栈回溯、系统堆、位扫描、断言」
+ * 相关的内核侧服务；字符串/内存等可复用例程已迁到 rtklibc，此处不再重复。
+ *
+ * - BSP 弱接口：延时、复位、关机、控制台字符输出、回溯帧读写、CPU 架构名等，
+ *   默认打日志或空实现，由具体 BSP/arch 覆盖。
+ * - 控制台：在 RT_USING_CONSOLE 下提供 rt_kprintf/rt_kputs、可选设备重定向与
+ *   RT_USING_THREADSAFE_PRINTF（自旋锁 + 临界区）下的互斥打印，避免多线程
+ *   与设备 write 交错乱序。
+ * - 回溯：与 cpuport.h 中 RT_HW_BACKTRACE_* 宏及 rt_hw_backtrace_frame_* 协作；
+ *   默认弱实现仅打印 PC 链提示用 addr2line。
+ * - 系统堆：在 RT_USING_HEAP 且非 RT_USING_USERHEAP 时，按配置选用 small/memheap/
+ *   slab 之一，并用 RT_USING_HEAP_ISR（自旋锁）或 RT_USING_MUTEX 或临界区保护
+ *   rt_malloc/rt_free 等；支持 malloc/free/realloc 钩子。
+ * - __rt_ffs：调度器优先级表等用到的「最低置 1 位」索引；无 CPU 指令版本时用
+ *   查表实现（含 RT_USING_TINY_FFS 省 ROM 表）。
  */
 
 #include <rtthread.h>
@@ -58,10 +77,15 @@
  * @{
  */
 
+/* 以下为板级弱符号、控制台、回溯、堆、FFS、断言等分段实现（中文分段标题见各节） */
+
 #if defined(RT_USING_DEVICE) && defined(RT_USING_CONSOLE)
 static rt_device_t _console_device = RT_NULL;
 #endif
 
+/* ========== BSP / arch 弱符号（无则默认行为：日志或空） ========== */
+
+/* 微秒级忙等或定时器延时；无实现时仅告警，调用方勿假定已延时 */
 rt_weak void rt_hw_us_delay(rt_uint32_t us)
 {
     (void) us;
@@ -69,6 +93,7 @@ rt_weak void rt_hw_us_delay(rt_uint32_t us)
         "Please consider implementing rt_hw_us_delay() in another file.");
 }
 
+/* 硬复位入口；BSP 通常写看门狗或 AIRCR 等 */
 rt_weak void rt_hw_cpu_reset(void)
 {
     LOG_W("rt_hw_cpu_reset() doesn't support for this board."
@@ -76,6 +101,7 @@ rt_weak void rt_hw_cpu_reset(void)
     return;
 }
 
+/* 关机路径：默认关中断后 RT_ASSERT(0) 停住，避免误继续执行 */
 rt_weak void rt_hw_cpu_shutdown(void)
 {
     LOG_I("CPU shutdown...");
@@ -88,6 +114,8 @@ rt_weak void rt_hw_cpu_shutdown(void)
 
 /**
  * @note can be overridden by cpuport.h which is defined by a specific arch
+ * @note 中文：取「当前调用点」的 fp/pc 作为回溯起点；GCC 用 __builtin_frame_address
+ *       与 GNU 取址标签技巧，其它编译器则置 0 表示需 arch 自行实现。
  */
 #ifndef RT_HW_BACKTRACE_FRAME_GET_SELF
 
@@ -113,6 +141,7 @@ rt_weak void rt_hw_cpu_shutdown(void)
  * @param thread the thread which frame belongs to
  * @param frame the specified frame to be unwound
  * @return rt_err_t 0 is succeed, otherwise a failure
+ * @note 中文：调试其它线程栈时由 arch 从 TCB/保存上下文解析最内层栈帧；未实现则 -RT_ENOSYS。
  */
 rt_weak rt_err_t rt_hw_backtrace_frame_get(rt_thread_t thread, struct rt_hw_backtrace_frame *frame)
 {
@@ -129,6 +158,7 @@ rt_weak rt_err_t rt_hw_backtrace_frame_get(rt_thread_t thread, struct rt_hw_back
  * @param thread the thread which frame belongs to
  * @param frame the specified frame to be unwound
  * @return rt_err_t 0 is succeed, otherwise a failure
+ * @note 中文：将 frame 推进到上一层调用者；成功返回 0，已到栈顶等非 0 表示停止展开。
  */
 rt_weak rt_err_t rt_hw_backtrace_frame_unwind(rt_thread_t thread, struct rt_hw_backtrace_frame *frame)
 {
@@ -146,6 +176,7 @@ rt_weak const char *rt_hw_cpu_arch(void)
 
 /**
  * @brief This function will show the version of rt-thread rtos
+ * @note 中文：启动时 ASCII Logo + 版本号 + 编译日期时间；Smart/Nano 变体字符串不同。
  */
 void rt_show_version(void)
 {
@@ -169,6 +200,7 @@ RTM_EXPORT(rt_show_version);
  * @brief  This function returns the device using in console.
  *
  * @return Returns the console device pointer or RT_NULL.
+ * @note 中文：未 set 过则为 RT_NULL，此时 rt_kprintf 走 rt_hw_console_output。
  */
 rt_device_t rt_console_get_device(void)
 {
@@ -184,6 +216,7 @@ RTM_EXPORT(rt_console_get_device);
  * @param  name is the name of new console device.
  *
  * @return the old console device handler on successful, or RT_NULL on failure.
+ * @note 中文：新设备以 STREAM+RDWR 打开；旧设备若存在则 close。同名或未找到则保持原设备。
  */
 rt_device_t rt_console_set_device(const char *name)
 {
@@ -215,7 +248,14 @@ rt_weak void rt_hw_console_output(const char *str)
 }
 RTM_EXPORT(rt_hw_console_output);
 
+/* 无 RT_USING_DEVICE 或未 set 控制台设备时，逐字符/块输出由 BSP 实现（UART 轮询等） */
+
 #ifdef RT_USING_THREADSAFE_PRINTF
+/*
+ * 线程安全打印：_syscon_lock 保护「当前占用控制台的线程」_pr_curr_user；
+ * 占用时在无调度抢占临界区内写设备，避免与另一线程交叉；_prbuf_lock 保护
+ * 静态 rt_log_buf，避免两个线程同时 vsnprintf 踩同一缓冲区。
+ */
 
 /* system console lock */
 static struct rt_spinlock _syscon_lock = RT_SPINLOCK_INIT;
@@ -258,6 +298,7 @@ static void _console_take(void)
         }
         else
         {
+            /* 控制台已被其它线程占用：让出 CPU 后再抢锁轮询（非阻塞睡眠式自旋） */
             rt_spin_unlock_irqrestore(&_syscon_lock, level);
             rt_thread_yield();
             level = rt_spin_lock_irqsave(&_syscon_lock);
@@ -308,6 +349,7 @@ static void _console_release(void)
  * @brief This function will put string to the console.
  *
  * @param str is the string output to the console.
+ * @note 中文：CONSOLE_TAKE/RELEASE 包裹整段输出；有设备则 write，否则 rt_hw_console_output。
  */
 static void _kputs(const char *str, long len)
 {
@@ -355,6 +397,8 @@ void rt_kputs(const char *str)
  * @param fmt is the format parameters.
  *
  * @return The number of characters actually written to buffer.
+ * @note 中文：静态 rt_log_buf 上 rt_vsnprintf，超长截断到 RT_CONSOLEBUF_SIZE-1；
+ *       与 THREADSAFE_PRINTF 组合时缓冲区由 _prbuf_lock 保护。
  */
 rt_weak int rt_kprintf(const char *fmt, ...)
 {
@@ -386,10 +430,13 @@ rt_weak int rt_kprintf(const char *fmt, ...)
 RTM_EXPORT(rt_kprintf);
 #endif /* RT_USING_CONSOLE */
 
+/* ========== 栈回溯（弱实现 + arch 帧操作） ========== */
+
 /**
  * @brief Print backtrace of current thread to system console device
  *
  * @return rt_err_t 0 is success, otherwise a failure
+ * @note 中文：先取本线程当前帧，丢掉当前栈顶「噪声」帧再逐层 unwind 打印 PC。
  */
 rt_weak rt_err_t rt_backtrace(void)
 {
@@ -412,6 +459,7 @@ rt_weak rt_err_t rt_backtrace(void)
  * @param thread the thread which frame belongs to
  * @param frame where backtrace starts from
  * @return rt_err_t 0 is success, otherwise a failure
+ * @note 中文：默认实现只打印十六进制 PC 列表；符号解析需主机上 addr2line。
  */
 rt_weak rt_err_t rt_backtrace_frame(rt_thread_t thread, struct rt_hw_backtrace_frame *frame)
 {
@@ -438,6 +486,7 @@ rt_weak rt_err_t rt_backtrace_frame(rt_thread_t thread, struct rt_hw_backtrace_f
  * @param buffer where traced frames saved
  * @param buflen number of items in buffer
  * @return rt_err_t 0 is success, otherwise a failure
+ * @note 中文：将 rt_backtrace_to_buffer 等收集的 PC 数组格式化输出。
  */
 rt_weak rt_err_t rt_backtrace_formatted_print(rt_ubase_t *buffer, long buflen)
 {
@@ -466,6 +515,7 @@ rt_weak rt_err_t rt_backtrace_formatted_print(rt_ubase_t *buffer, long buflen)
  *               than buflen items to be saved, there will be a NULL after the
  *               last saved item in the buffer.
  * @return rt_err_t 0 is success, otherwise a failure
+ * @note 中文：skip 丢弃若干外层帧；最内层（本函数自身）在循环前已通过 unwind 丢掉。
  */
 rt_weak rt_err_t rt_backtrace_to_buffer(rt_thread_t thread,
                                         struct rt_hw_backtrace_frame *frame,
@@ -515,6 +565,7 @@ rt_weak rt_err_t rt_backtrace_to_buffer(rt_thread_t thread,
  *
  * @param thread which call stack is traced
  * @return rt_err_t 0 is success, otherwise a failure
+ * @note 中文：非弱函数；依赖 rt_hw_backtrace_frame_get 能解析目标线程栈顶。
  */
 rt_err_t rt_backtrace_thread(rt_thread_t thread)
 {
@@ -582,6 +633,12 @@ MSH_CMD_EXPORT_ALIAS(cmd_backtrace, backtrace, print backtrace of a thread);
 #endif /* RT_USING_LIBC */
 
 #if defined(RT_USING_HEAP) && !defined(RT_USING_USERHEAP)
+/*
+ * ========== 内核系统堆（与 memheap/slab/small 三选一绑定） ==========
+ * 锁策略：RT_USING_HEAP_ISR 用自旋锁（可在 ISR 路径配合策略使用）；
+ * 否则若 RT_USING_MUTEX 用互斥量；再否则 rt_enter_critical 关抢占。
+ */
+
 #ifdef RT_USING_HOOK
 static void (*rt_malloc_hook)(void **ptr, rt_size_t size);
 static void (*rt_realloc_entry_hook)(void **ptr, rt_size_t size);
@@ -598,6 +655,7 @@ static void (*rt_free_hook)(void **ptr);
  *        block is allocated from heap memory.
  *
  * @param hook the hook function.
+ * @note 中文：在 _heap_unlock 之后调用，ptr 为实际返回指针，可用于统计或检测泄漏。
  */
 void rt_malloc_sethook(void (*hook)(void **ptr, rt_size_t size))
 {
@@ -609,6 +667,7 @@ void rt_malloc_sethook(void (*hook)(void **ptr, rt_size_t size))
  *        block is allocated from heap memory.
  *
  * @param hook the hook function.
+ * @note 中文：realloc 加锁前调用（entry），可配合 exit 钩子做 sanitizer 等。
  */
 void rt_realloc_set_entry_hook(void (*hook)(void **ptr, rt_size_t size))
 {
@@ -620,6 +679,7 @@ void rt_realloc_set_entry_hook(void (*hook)(void **ptr, rt_size_t size))
  *        block is allocated from heap memory.
  *
  * @param hook the hook function.
+ * @note 中文：realloc 解锁后调用（exit），ptr 指向新块地址。
  */
 void rt_realloc_set_exit_hook(void (*hook)(void **ptr, rt_size_t size))
 {
@@ -631,6 +691,7 @@ void rt_realloc_set_exit_hook(void (*hook)(void **ptr, rt_size_t size))
  *        block is released to heap memory.
  *
  * @param hook the hook function
+ * @note 中文：在加锁释放内存之前调用，可改写 *ptr（例如置毒指针）需自行把握语义。
  */
 void rt_free_sethook(void (*hook)(void **ptr))
 {
@@ -661,6 +722,7 @@ rt_inline rt_base_t _heap_lock(void)
 #if defined(RT_USING_HEAP_ISR)
     return rt_spin_lock_irqsave(&_heap_spinlock);
 #elif defined(RT_USING_MUTEX)
+    /* 调度器未就绪或 idle 前 rt_thread_self() 可能为 NULL，此时不拿互斥量 */
     if (rt_thread_self())
         return rt_mutex_take(&_lock, RT_WAITING_FOREVER);
     else
@@ -770,6 +832,7 @@ rt_inline void _slab_info(rt_size_t *total,
  * @param begin_addr the beginning address of system page.
  *
  * @param end_addr the end address of system page.
+ * @note 中文：起止地址按 RT_ALIGN_SIZE 对齐后再 _MEM_INIT；随后 _heap_lock_init。
  */
 void rt_system_heap_init_generic(void *begin_addr, void *end_addr)
 {
@@ -791,6 +854,7 @@ void rt_system_heap_init_generic(void *begin_addr, void *end_addr)
  * @param begin_addr the beginning address of system page.
  *
  * @param end_addr the end address of system page.
+ * @note 中文：弱符号默认转 rt_system_heap_init_generic；可 override 做 poison/统计初始化。
  */
 rt_weak void rt_system_heap_init(void *begin_addr, void *end_addr)
 {
@@ -803,6 +867,7 @@ rt_weak void rt_system_heap_init(void *begin_addr, void *end_addr)
  * @param size is the minimum size of the requested block in bytes.
  *
  * @return the pointer to allocated memory or NULL if no free memory was found.
+ * @note 中文：堆操作在 _heap_lock 临界区内完成，再调 malloc 钩子（若配置）。
  */
 rt_weak void *rt_malloc(rt_size_t size)
 {
@@ -829,6 +894,7 @@ RTM_EXPORT(rt_malloc);
  * @param newsize is the required new size.
  *
  * @return the changed memory block address.
+ * @note 中文：entry/exit 钩子包在加锁 realloc 两侧，便于跟踪指针迁移。
  */
 rt_weak void *rt_realloc(void *ptr, rt_size_t newsize)
 {
@@ -861,6 +927,7 @@ RTM_EXPORT(rt_realloc);
  * @param  size is the size of one object to allocate.
  *
  * @return pointer to allocated memory / NULL pointer if there is an error.
+ * @note 中文：count*size 可能溢出，调用方应保证乘积合法；成功则 rt_memset 清零。
  */
 rt_weak void *rt_calloc(rt_size_t count, rt_size_t size)
 {
@@ -882,6 +949,7 @@ RTM_EXPORT(rt_calloc);
  *        rt_malloc. The released memory block is taken back to system heap.
  *
  * @param ptr the address of memory which will be released.
+ * @note 中文：先 free 钩子再判空加锁释放；ptr==NULL 为合法空操作。
  */
 rt_weak void rt_free(void *ptr)
 {
@@ -908,6 +976,7 @@ RTM_EXPORT(rt_free);
 * @param used is a pointer to get the size of memory used.
 *
 * @param max_used is a pointer to get the maximum memory used.
+* @note 中文：各指针可为 NULL 表示不关心该项；在堆锁内读后端堆统计。
 */
 rt_weak void rt_memory_info(rt_size_t *total,
                             rt_size_t *used,
@@ -961,6 +1030,8 @@ void rt_page_free(void *addr, rt_size_t npages)
  *
  * @return The memory block address was returned successfully, otherwise it was
  *         returned empty RT_NULL.
+ * @note 中文：多申请 align+对齐填充，在「对齐后地址」前一字存放真实 rt_malloc 指针，
+ *       供 rt_free_align 取回；对齐宽度向上取到 void* 粒度。
  */
 rt_weak void *rt_malloc_align(rt_size_t size, rt_size_t align)
 {
@@ -1007,6 +1078,7 @@ RTM_EXPORT(rt_malloc_align);
  * rt_malloc_align function and address is aligned.
  *
  * @param ptr is the memory block pointer.
+ * @note 中文：必须用 rt_malloc_align 返回的用户指针释放；内部读对齐首址前 sizeof(void*) 的 cookie。
  */
 rt_weak void rt_free_align(void *ptr)
 {
@@ -1019,6 +1091,8 @@ rt_weak void rt_free_align(void *ptr)
 }
 RTM_EXPORT(rt_free_align);
 #endif /* RT_USING_HEAP */
+
+/* ========== __rt_ffs：最低置 1 位的序号（1-based），value==0 返回 0 ========== */
 
 #ifndef RT_USING_CPU_FFS
 #ifdef RT_USING_TINY_FFS
@@ -1042,6 +1116,7 @@ const rt_uint8_t __lowest_bit_bitmap[] =
  *
  * @return return the index of the first bit set. If value is 0, then this function
  * shall return 0.
+ * @note 中文：TINY 表仅 37 字节；用 (v&(v-1))^v 将最低 1 位孤立后查表得位序。
  */
 int __rt_ffs(int value)
 {
@@ -1079,6 +1154,7 @@ const rt_uint8_t __lowest_bit_bitmap[] =
  *
  * @return Return the index of the first bit set. If value is 0, then this function
  *         shall return 0.
+ * @note 中文：按字节分段查 256 项表，比 TINY 版费 ROM、分支可预测性更好。
  */
 int __rt_ffs(int value)
 {
@@ -1116,6 +1192,7 @@ void (*rt_assert_hook)(const char *ex, const char *func, rt_size_t line);
  * This function will set a hook function to RT_ASSERT(EX). It will run when the expression is false.
  *
  * @param hook is the hook function.
+ * @note 中文：未设置钩子时默认 kprintf + 回溯 + 死循环停机；模块内断言可走 dlmodule_exit。
  */
 void rt_assert_set_hook(void (*hook)(const char *ex, const char *func, rt_size_t line))
 {
@@ -1130,6 +1207,7 @@ void rt_assert_set_hook(void (*hook)(const char *ex, const char *func, rt_size_t
  * @param func is the function name when assertion.
  *
  * @param line is the file line number when assertion.
+ * @note 中文：由 RT_ASSERT 宏展开调用；dummy 死循环便于接 JTAG 查现场。
  */
 void rt_assert_handler(const char *ex_string, const char *func, rt_size_t line)
 {

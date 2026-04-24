@@ -115,6 +115,24 @@
  *    + ability to allocate arbitrarily large chunks of memory
  */
 
+/*
+ * ---------------------------------------------------------------------------
+ * RT-Thread slab 实现（中文导读）
+ * ---------------------------------------------------------------------------
+ * 继承 DragonFly 思路：按请求大小映射到固定「档」chunk 尺寸，每档维护若干
+ * rt_slab_zone；区内前面为 zone 头，后面 z_baseptr 起为等长 chunk。分配优先
+ * 从该档已有 zone 的 z_freechunk 或尚未使用的 uindex 区域取块；无可用 zone 则
+ * 向页分配器申请一整 zone 大小的连续页并初始化。
+ *
+ * memusage[] 与堆内每页一一对应：SMALL 记录所属 zone 起始页相对偏移，LARGE
+ * 记录页数；btokup(addr) 由地址定位到页描述。大于等于 zone_limit 的请求不经
+ * zone，直接 rt_slab_page_alloc 按页分配。
+ *
+ * zone_array[RT_SLAB_NZONES]：各档「仍有空闲 chunk」的 zone 链表；zone_free
+ * 挂整区已空的可复用 zone；空 zone 缓存超过 ZONE_RELEASE_THRESH 时归还物理页。
+ * 与 kservice 配合时由 RT_USING_SLAB_AS_HEAP 外层 _heap_lock 串行化。
+ */
+
 #define ZALLOC_SLAB_MAGIC       0x51ab51ab
 #define ZALLOC_ZONE_LIMIT       (16 * 1024)     /* max slab-managed alloc */
 #define ZALLOC_MIN_ZONE_SIZE    (32 * 1024)     /* minimum zone size */
@@ -135,6 +153,7 @@
 #define PAGE_TYPE_SMALL     0x01
 #define PAGE_TYPE_LARGE     0x02
 
+/* 由任意堆内地址换算所属页的 memusage 项 */
 #define btokup(addr)    \
     (&slab->memusage[((rt_uintptr_t)(addr) - slab->heap_start) >> RT_MM_PAGE_BITS])
 
@@ -143,7 +162,7 @@
  */
 
 /*
- * The IN-BAND zone header is placed at the beginning of each zone.
+ * 每个 zone：头部 in-band 位于该区首若干字节之后接 chunk 数组；z_magic 校验
  */
 struct rt_slab_zone
 {
@@ -161,7 +180,7 @@ struct rt_slab_zone
 };
 
 /*
- * Chunk structure for free elements
+ * 空闲 chunk 仅用作侵入式单链表指针 c_next
  */
 struct rt_slab_chunk
 {
@@ -170,8 +189,8 @@ struct rt_slab_chunk
 
 struct rt_slab_memusage
 {
-    rt_uint32_t     type: 2 ;               /**< page type */
-    rt_uint32_t     size: 30;               /**< pages allocated or offset from zone */
+    rt_uint32_t     type: 2 ;               /**< FREE / SMALL / LARGE */
+    rt_uint32_t     size: 30;               /**< LARGE:页数；SMALL:本页相对 zone 首页偏移 */
 };
 
 /*
@@ -189,7 +208,7 @@ struct rt_slab_page
 #define RT_SLAB_NZONES                  72              /* number of zones */
 
 /*
- * slab object
+ * slab 堆对象：继承 rt_memory；memusage 覆盖整堆页；zone_array 按档索引活跃 zone
  */
 struct rt_slab
 {
@@ -197,8 +216,8 @@ struct rt_slab
     rt_uintptr_t                heap_start;                     /**< memory start address */
     rt_uintptr_t                heap_end;                       /**< memory end address */
     struct rt_slab_memusage    *memusage;
-    struct rt_slab_zone        *zone_array[RT_SLAB_NZONES];     /* linked list of zones NFree > 0 */
-    struct rt_slab_zone        *zone_free;                      /* whole zones that have become free */
+    struct rt_slab_zone        *zone_array[RT_SLAB_NZONES];     /**< 各档 z_nfree>0 的 zone 链 */
+    struct rt_slab_zone        *zone_free;                      /**< 整区已空、可复用或归还的 zone */
     rt_uint32_t                 zone_free_cnt;
     rt_uint32_t                 zone_size;
     rt_uint32_t                 zone_limit;
@@ -212,6 +231,7 @@ struct rt_slab
  * @param m the slab memory management object.
  *
  * @param npages the number of pages.
+ * @note 中文：在 page_list 上找首个 page>=npages 的块；更大则分裂尾部为新结点。
  */
 void *rt_slab_page_alloc(rt_slab_t m, rt_size_t npages)
 {
@@ -253,6 +273,7 @@ void *rt_slab_page_alloc(rt_slab_t m, rt_size_t npages)
  * @param addr is the head address of first page.
  *
  * @param npages is the number of pages.
+ * @note 中文：尝试与相邻物理页块合并后插入有序链表，减少碎片。
  */
 void rt_slab_page_free(rt_slab_t m, void *addr, rt_size_t npages)
 {
@@ -298,9 +319,7 @@ void rt_slab_page_free(rt_slab_t m, void *addr, rt_size_t npages)
     *prev   = n;
 }
 
-/*
- * Initialize the page allocator
- */
+/* 将初始整段物理页登记进 page_list（经 rt_slab_page_free 建链） */
 static void rt_slab_page_init(struct rt_slab *slab, void *addr, rt_size_t npages)
 {
     RT_ASSERT(addr != RT_NULL);
@@ -320,6 +339,8 @@ static void rt_slab_page_init(struct rt_slab *slab, void *addr, rt_size_t npages
  * @param size is the size of the memory.
  *
  * @return Return a pointer to the slab memory object.
+ * @note 中文：控制结构 rt_slab 从 begin_addr 对齐放置；可用堆为页对齐区间；
+ *       再划出 memusage 区与页分配器初始整块。zone_size 在 MIN/MAX 间按总堆放大。
  */
 rt_slab_t rt_slab_init(const char *name, void *begin_addr, rt_size_t size)
 {
@@ -334,7 +355,7 @@ rt_slab_t rt_slab_init(const char *name, void *begin_addr, rt_size_t size)
     end_align   = RT_ALIGN_DOWN((rt_uintptr_t)begin_addr + size, RT_MM_PAGE_SIZE);
     if (begin_align >= end_align)
     {
-        rt_kprintf("slab init errr. wrong address[0x%x - 0x%x]\n",
+        rt_kprintf("slab init error. wrong address[0x%x - 0x%x]\n",
                    (rt_uintptr_t)begin_addr, (rt_uintptr_t)begin_addr + size);
         return RT_NULL;
     }
@@ -389,6 +410,7 @@ RTM_EXPORT(rt_slab_init);
  * @param m the slab memory management object.
  *
  * @return RT_EOK
+ * @note 中文：仅从内核对象管理摘除，不释放底层堆内存（静态 slab 场景）。
  */
 rt_err_t rt_slab_detach(rt_slab_t m)
 {
@@ -405,8 +427,7 @@ rt_err_t rt_slab_detach(rt_slab_t m)
 RTM_EXPORT(rt_slab_detach);
 
 /*
- * Calculate the zone index for the allocation request size and set the
- * allocation request size to that particular zone's chunk size.
+ * 将请求字节数上调为某档 chunk 尺寸，并返回 zone_array 下标（与 z_chunksize 一致）
  */
 rt_inline int zoneindex(rt_size_t *bytes)
 {
@@ -486,6 +507,8 @@ rt_inline int zoneindex(rt_size_t *bytes)
  * @param size is the size of memory to be allocated.
  *
  * @return the allocated memory.
+ * @note 中文：size>=zone_limit 走 LARGE 页分配；否则 zoneindex 后从 zone_array
+ *       或新 zone 取一块；满 zone 会从链头摘除直至再次 free。
  */
 void *rt_slab_alloc(rt_slab_t m, rt_size_t size)
 {
@@ -665,6 +688,7 @@ RTM_EXPORT(rt_slab_alloc);
  * @param size is the new size of memory block.
  *
  * @return the allocated memory.
+ * @note 中文：同 zone 同 chunksize 则原地返回；否则新 alloc、memcpy 较小边、再 free。
  */
 void *rt_slab_realloc(rt_slab_t m, void *ptr, rt_size_t size)
 {
@@ -730,10 +754,12 @@ RTM_EXPORT(rt_slab_realloc);
 /**
  * @brief This function will release the previous allocated memory block by rt_slab_alloc.
  *
- * @note The released memory block is taken back to system heap.
+ * @note The released memory block is returned to the slab page allocator / zone free list.
  *
  * @param m the slab memory management object.
  * @param ptr is the address of memory which will be released
+ * @note 中文：LARGE 整段 rt_slab_page_free；SMALL 头插 z_freechunk，必要时 zone
+ *       重回 zone_array 或进入 zone_free 并在超阈值时整 zone 归还页。
  */
 void rt_slab_free(rt_slab_t m, void *ptr)
 {

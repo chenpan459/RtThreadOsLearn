@@ -17,6 +17,19 @@
  * 2022-01-07     Gabriel      Moving __on_rt_xxxxx_hook to mempool.c
  * 2023-09-15     xqyjlj       perf rt_hw_interrupt_disable/enable
  * 2023-12-10     xqyjlj       fix spinlock assert
+ *
+ * ---------------------------------------------------------------------------
+ * 模块说明（内存池 RT_USING_MEMPOOL）
+ * ---------------------------------------------------------------------------
+ * 内存池将一段连续内存划分为若干等长「槽」：每槽布局为
+ *   [sizeof(void*) 元数据区][block_size 用户数据区]
+ * 空闲时元数据区存下一空闲槽指针，形成单链表 block_list；分配后该字改写为
+ * 所属 struct rt_mempool *，供 rt_mp_free 反查池对象。rt_mp_alloc 返回的是
+ * 用户区首址（跳过元数据指针宽度）。
+ *
+ * 与 memheap/small mem 不同：块大小固定、无分裂合并；分配/释放 O(1)（仅链表
+ * 头插），适合 DMA 缓冲、固定对象池等场景。无块且 time!=0 时线程挂起到
+ * suspend_thread，由 rt_mp_free 唤醒。
  */
 
 #include <rthw.h>
@@ -39,6 +52,7 @@ static void (*rt_mp_free_hook)(struct rt_mempool *mp, void *block);
  *        block is allocated from the memory pool.
  *
  * @param hook the hook function
+ * @note 中文：在自旋锁释放之后调用；hook 内勿再对同一 mp 做可能阻塞的 alloc。
  */
 void rt_mp_alloc_sethook(void (*hook)(struct rt_mempool *mp, void *block))
 {
@@ -50,6 +64,7 @@ void rt_mp_alloc_sethook(void (*hook)(struct rt_mempool *mp, void *block))
  *        block is released to the memory pool.
  *
  * @param hook the hook function
+ * @note 中文：在加锁之前调用，参数 block 为用户区指针。
  */
 void rt_mp_free_sethook(void (*hook)(struct rt_mempool *mp, void *block))
 {
@@ -77,9 +92,11 @@ void rt_mp_free_sethook(void (*hook)(struct rt_mempool *mp, void *block))
  *
  * @param  size is the total size of the memory pool.
  *
- * @param  block_size is the size for each block..
+ * @param  block_size is the size for each block (user payload, aligned).
  *
  * @return RT_EOK
+ * @note   中文：静态池；start/size 由调用方提供，块数 = size / (block_size+指针宽)。
+ *         初始化把各槽串成空闲链，最后一槽 next 置 RT_NULL。
  */
 rt_err_t rt_mp_init(struct rt_mempool *mp,
                     const char        *name,
@@ -114,7 +131,7 @@ rt_err_t rt_mp_init(struct rt_mempool *mp,
     /* initialize suspended thread list */
     rt_list_init(&(mp->suspend_thread));
 
-    /* initialize free block list */
+    /* 每槽首部 void* 存下一槽地址；用户可用区紧随其后，长度为 block_size */
     block_ptr = (rt_uint8_t *)mp->start_address;
     for (offset = 0; offset < mp->block_total_count; offset ++)
     {
@@ -138,6 +155,7 @@ RTM_EXPORT(rt_mp_init);
  * @param  mp is the memory pool object.
  *
  * @return RT_EOK
+ * @note   中文：唤醒所有阻塞在池上的线程；不释放 start_address 指向的静态内存。
  */
 rt_err_t rt_mp_detach(struct rt_mempool *mp)
 {
@@ -172,6 +190,8 @@ RTM_EXPORT(rt_mp_detach);
  * @param block_size is the size for each block.
  *
  * @return the created mempool object
+ * @note   中文：从堆分配对象与池内存，勿在中断里调用（RT_DEBUG_NOT_IN_INTERRUPT）。
+ *         失败时若池内存申请失败会删除已分配的内核对象。
  */
 rt_mp_t rt_mp_create(const char *name,
                      rt_size_t   block_count,
@@ -239,6 +259,7 @@ RTM_EXPORT(rt_mp_create);
  * @param mp is the memory pool object.
  *
  * @return RT_EOK
+ * @note   中文：先唤醒阻塞线程，再 rt_free(start_address)，最后删除内核对象。
  */
 rt_err_t rt_mp_delete(rt_mp_t mp)
 {
@@ -277,6 +298,8 @@ RTM_EXPORT(rt_mp_delete);
  *             - 0 for not waiting, allocating memory immediately.
  *
  * @return the allocated memory block or RT_NULL on allocated failed.
+ * @note   中文：无空闲块且 time==0 返回 RT_NULL 并置 errno -RT_ETIMEOUT；阻塞路径
+ *         使用线程定时器扣减剩余 tick。返回前在槽首写入 mp 指针供 rt_mp_free 使用。
  */
 void *rt_mp_alloc(rt_mp_t mp, rt_int32_t time)
 {
@@ -345,14 +368,13 @@ void *rt_mp_alloc(rt_mp_t mp, rt_int32_t time)
     /* memory block is available. decrease the free block counter */
     mp->block_free_count--;
 
-    /* get block from block list */
+    /* 从空闲链表头弹出一槽 */
     block_ptr = mp->block_list;
     RT_ASSERT(block_ptr != RT_NULL);
 
-    /* Setup the next free node. */
     mp->block_list = *(rt_uint8_t **)block_ptr;
 
-    /* point to memory pool */
+    /* 元数据字改写为池指针（覆盖原 next），与空闲链语义切换 */
     *(rt_uint8_t **)block_ptr = (rt_uint8_t *)mp;
 
     rt_spin_unlock_irqrestore(&(mp->spinlock), level);
@@ -368,6 +390,8 @@ RTM_EXPORT(rt_mp_alloc);
  * @brief This function will release a memory block.
  *
  * @param block the address of memory block to be released.
+ * @note 中文：block 须为 rt_mp_alloc 返回值；通过 block 前一字取 mp，再头插回
+ *       空闲链。若有阻塞线程则释放锁后 schedule 唤醒一个。
  */
 void rt_mp_free(void *block)
 {
@@ -378,7 +402,7 @@ void rt_mp_free(void *block)
     /* parameter check */
     if (block == RT_NULL) return;
 
-    /* get the control block of pool which the block belongs to */
+    /* 用户区紧邻前方即为分配时写入的 mp 指针 */
     block_ptr = (rt_uint8_t **)((rt_uint8_t *)block - sizeof(rt_uint8_t *));
     mp        = (struct rt_mempool *)*block_ptr;
 
@@ -389,7 +413,7 @@ void rt_mp_free(void *block)
     /* increase the free block count */
     mp->block_free_count ++;
 
-    /* link the block into the block list */
+    /* 头插回空闲链：*block_ptr 恢复为「下一空闲槽」指针语义 */
     *block_ptr = mp->block_list;
     mp->block_list = (rt_uint8_t *)block_ptr;
 

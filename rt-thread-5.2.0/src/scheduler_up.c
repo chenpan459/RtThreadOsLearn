@@ -30,6 +30,20 @@
  * 2022-01-07     Gabriel      Moving __on_rt_xxxxx_hook to scheduler.c
  * 2023-03-27     rose_man     Split into scheduler upc and scheduler_mp.c
  * 2023-10-17     ChuShicheng  Modify the timing of clearing RT_THREAD_STAT_YIELD flag bits
+ *
+ * ---------------------------------------------------------------------------
+ * 单核调度器（scheduler_up.c，非 RT_USING_SMP）
+ * ---------------------------------------------------------------------------
+ * 与 scheduler_mp.c 对应：仅一套就绪优先级表 rt_thread_priority_table[] 与
+ * rt_thread_ready_priority_group 位图，无绑核/IPI/每核就绪队列。插入与摘除
+ * 就绪线程用「关中断」保护临界区，而非 MP 的全局调度自旋锁。
+ *
+ * rt_scheduler_lock_nest：rt_enter_critical/rt_exit_critical 维护；仅当 nest==0
+ * 时 rt_schedule 才真正挑选线程（与 MP 里每线程 critical_lock_nest 不同）。
+ * rt_sched_lock/rt_sched_unlock 在 UP 上仅保存/恢复中断掩码，不含 nest 变化；
+ * rt_sched_unlock_n_resched 在恢复中断前调用 rt_schedule()。
+ *
+ * rt_current_priority：记录当前被选中运行线程的优先级数值，供内核其它路径查询。
  */
 
 #define __RT_IPC_SOURCE__
@@ -40,6 +54,7 @@
 #define DBG_LVL           DBG_INFO
 #include <rtdbg.h>
 
+/* 单核就绪队列：每优先级一条双向链表头 + 位图表示哪些优先级非空 */
 rt_list_t rt_thread_priority_table[RT_THREAD_PRIORITY_MAX];
 rt_uint32_t rt_thread_ready_priority_group;
 #if RT_THREAD_PRIORITY_MAX > 32
@@ -48,7 +63,9 @@ rt_uint8_t rt_thread_ready_table[32];
 #endif /* RT_THREAD_PRIORITY_MAX > 32 */
 
 extern volatile rt_atomic_t rt_interrupt_nest;
+/* rt_enter/exit_critical 嵌套计数；>0 时 rt_schedule 直接跳过 */
 static rt_int16_t rt_scheduler_lock_nest;
+/* 最近一次调度选中的优先级（数值越小优先级越高，依 RT_THREAD_PRIORITY_MAX 定义） */
 rt_uint8_t rt_current_priority;
 
 #if defined(RT_USING_HOOK) && defined(RT_HOOK_USING_FUNC_PTR)
@@ -66,6 +83,7 @@ static void (*rt_scheduler_switch_hook)(struct rt_thread *tid);
  *        switch happens.
  *
  * @param hook is the hook function.
+ * @note 中文：选定 to 线程、即将切换前调用。
  */
 void rt_scheduler_sethook(void (*hook)(struct rt_thread *from, struct rt_thread *to))
 {
@@ -77,6 +95,7 @@ void rt_scheduler_sethook(void (*hook)(struct rt_thread *from, struct rt_thread 
  *        switch happens.
  *
  * @param hook is the hook function.
+ * @note 中文：切离 from 线程、进入汇编切换前调用。
  */
 void rt_scheduler_switch_sethook(void (*hook)(struct rt_thread *tid))
 {
@@ -86,6 +105,7 @@ void rt_scheduler_switch_sethook(void (*hook)(struct rt_thread *tid))
 /**@}*/
 #endif /* RT_USING_HOOK */
 
+/* 由就绪位图 __rt_ffs 得最高优先级，再取该优先级链表首结点为下一个候选线程 */
 static struct rt_thread* _scheduler_get_highest_priority_thread(rt_ubase_t *highest_prio)
 {
     struct rt_thread *highest_priority_thread;
@@ -108,6 +128,7 @@ static struct rt_thread* _scheduler_get_highest_priority_thread(rt_ubase_t *high
     return highest_priority_thread;
 }
 
+/* 仅关/开中断保存点，不改变 rt_scheduler_lock_nest；与 MP 版语义不同 */
 rt_err_t rt_sched_lock(rt_sched_lock_level_t *plvl)
 {
     rt_base_t level;
@@ -127,6 +148,7 @@ rt_err_t rt_sched_unlock(rt_sched_lock_level_t level)
     return RT_EOK;
 }
 
+/* 在恢复中断前尝试调度一次，便于持 plvl 临界区内完成状态更新后再切换 */
 rt_err_t rt_sched_unlock_n_resched(rt_sched_lock_level_t level)
 {
     if (rt_thread_self())
@@ -141,6 +163,7 @@ rt_err_t rt_sched_unlock_n_resched(rt_sched_lock_level_t level)
 
 /**
  * @brief This function will initialize the system scheduler.
+ * @note 中文：清空 nest，初始化各优先级链表头与就绪位图。
  */
 void rt_system_scheduler_init(void)
 {
@@ -167,6 +190,7 @@ void rt_system_scheduler_init(void)
 /**
  * @brief This function will startup the scheduler. It will select one thread
  *        with the highest priority level, then switch to it.
+ * @note 中文：设置 current_thread、摘就绪链、置 RUNNING 后 rt_hw_context_switch_to。
  */
 void rt_system_scheduler_start(void)
 {
@@ -197,13 +221,17 @@ void rt_system_scheduler_start(void)
 /**
  * @brief This function will perform scheduling once. It will select one thread
  *        with the highest priority, and switch to it immediately.
+ * @note 中文：rt_scheduler_lock_nest!=0 时整段调度跳过。比较当前 RUNNING 与最高
+ *       就绪优先级及 YIELD 位决定是否继续占用 CPU；切换前按需把 from 插回就绪队列。
+ *       rt_interrupt_nest!=0 时走 rt_hw_context_switch_interrupt。YIELD 标志在
+ *       确定切换目标后清除（ChuShicheng 2023 调整时机）。
  */
 void rt_schedule(void)
 {
     rt_base_t level;
     struct rt_thread *to_thread;
     struct rt_thread *from_thread;
-    /* using local variable to avoid unecessary function call */
+    /* 缓存 self 指针，避免多次 rt_thread_self() */
     struct rt_thread *curr_thread = rt_thread_self();
 
     /* disable interrupt */
@@ -326,7 +354,7 @@ __exit:
     return;
 }
 
-/* Normally, there isn't anyone racing with us so this operation is lockless */
+/* 与 MP 类似：填优先级位图掩码并置 SUSPEND，等待 startup/resume 进入调度 */
 void rt_sched_thread_startup(struct rt_thread *thread)
 {
 #if RT_THREAD_PRIORITY_MAX > 32
@@ -341,6 +369,7 @@ void rt_sched_thread_startup(struct rt_thread *thread)
     RT_SCHED_CTX(thread).stat = RT_THREAD_SUSPEND;
 }
 
+/* 线程对象创建阶段初始化链表节点、优先级与时间片；不入就绪队列 */
 void rt_sched_thread_init_priv(struct rt_thread *thread, rt_uint32_t tick, rt_uint8_t priority)
 {
     rt_list_init(&RT_THREAD_LIST_NODE(thread));
@@ -369,6 +398,8 @@ void rt_sched_thread_init_priv(struct rt_thread *thread, rt_uint32_t tick, rt_ui
  * @param thread is the thread to be inserted.
  *
  * @note  Please do not invoke this function in user application.
+ * @note  中文：关中断内操作。若 thread 已是 rt_current_thread 则只修正为 RUNNING
+ *        不入队（避免当前线程重复进就绪表）。
  */
 void rt_sched_insert_thread(struct rt_thread *thread)
 {
@@ -421,6 +452,7 @@ __exit:
  * @param thread is the thread to be removed.
  *
  * @note  Please do not invoke this function in user application.
+ * @note  中文：关中断内仅从就绪链摘除并维护位图；不修改 stat（与 MP 版不同）。
  */
 void rt_sched_remove_thread(struct rt_thread *thread)
 {
@@ -458,6 +490,7 @@ void rt_sched_remove_thread(struct rt_thread *thread)
 
 static volatile int _critical_error_occurred = 0;
 
+/* 调试：校验传入 nest 与全局 rt_scheduler_lock_nest 一致 */
 void rt_exit_critical_safe(rt_base_t critical_level)
 {
     rt_base_t level;
@@ -489,6 +522,7 @@ void rt_exit_critical_safe(rt_base_t critical_level)
 
 void rt_exit_critical_safe(rt_base_t critical_level)
 {
+    RT_UNUSED(critical_level);
     rt_exit_critical();
 }
 
@@ -497,6 +531,7 @@ RTM_EXPORT(rt_exit_critical_safe);
 
 /**
  * @brief This function will lock the thread scheduler.
+ * @note 中文：递增全局 rt_scheduler_lock_nest，禁止隐式调度；与 MP 每线程 nest 不同。
  */
 rt_base_t rt_enter_critical(void)
 {
@@ -522,6 +557,7 @@ RTM_EXPORT(rt_enter_critical);
 
 /**
  * @brief This function will unlock the thread scheduler.
+ * @note 中文：nest 归零且已有 current 线程时再 rt_schedule()，避免启动前误调度。
  */
 void rt_exit_critical(void)
 {
@@ -555,6 +591,7 @@ RTM_EXPORT(rt_exit_critical);
  * @brief Get the scheduler lock level.
  *
  * @return the level of the scheduler lock. 0 means unlocked.
+ * @note 中文：返回全局 rt_scheduler_lock_nest，即 rt_enter_critical 嵌套深度。
  */
 rt_uint16_t rt_critical_level(void)
 {
@@ -562,8 +599,11 @@ rt_uint16_t rt_critical_level(void)
 }
 RTM_EXPORT(rt_critical_level);
 
+/* 单核无绑核语义，与 SMP API 保持符号兼容 */
 rt_err_t rt_sched_thread_bind_cpu(struct rt_thread *thread, int cpu)
 {
+    RT_UNUSED(thread);
+    RT_UNUSED(cpu);
     return -RT_EINVAL;
 }
 

@@ -16,6 +16,18 @@
  * 2022-01-07     Gabriel      Moving __on_rt_xxxxx_hook to object.c
  * 2023-09-15     xqyjlj       perf rt_hw_interrupt_disable/enable
  * 2023-11-17     xqyjlj       add process group and session support
+ *
+ * ---------------------------------------------------------------------------
+ * 模块说明（内核对象管理 object.c）
+ * ---------------------------------------------------------------------------
+ * 内核为每类对象维护一条「对象容器」rt_object_information：内含类型、该类
+ * struct 大小（供 rt_object_allocate 分配）、对象双向链表及自旋锁。静态对象
+ * rt_object_init 在 type 上或 RT_Object_Class_Static，仅插入链表不分配内存；
+ * 动态对象 rt_object_allocate 从堆按 object_size 申请并挂链，rt_object_delete
+ * 摘链后 RT_KERNEL_FREE。
+ *
+ * rt_object_get_information 会剥离 Static 位再匹配容器。RT_USING_MODULE 时
+ * 对象可挂到当前 dlmodule 的 object_list 便于卸载时遍历回收。
  */
 
 #include <rtthread.h>
@@ -29,6 +41,7 @@
 #include <lwp.h>
 #endif
 
+/* 自定义对象：内嵌 rt_object 以便纳入统一容器；销毁时先调 data_destroy 再 delete */
 struct rt_custom_object
 {
     struct rt_object parent;
@@ -37,7 +50,8 @@ struct rt_custom_object
 };
 
 /*
- * define object_info for the number of _object_container items.
+ * 与 _object_container[] 下标一一对应；裁剪宏关闭时部分枚举成员不存在，
+ * RT_Object_Info_Unknown 即为数组长度。
  */
 enum rt_object_info_type
 {
@@ -87,6 +101,7 @@ enum rt_object_info_type
 #define _OBJ_CONTAINER_LIST_INIT(c)     \
     {&(_object_container[c].object_list), &(_object_container[c].object_list)}
 
+/* 编译期静态表：类型 + 空链表头 + 该类对象 sizeof + 每容器一把锁 */
 static struct rt_object_information _object_container[RT_Object_Info_Unknown] =
 {
     /* initialize object container - thread */
@@ -162,6 +177,7 @@ void (*rt_object_put_hook)(struct rt_object *object);
  *        attaches to kernel object system.
  *
  * @param hook is the hook function.
+ * @note 中文：在插入容器链表之前调用（init/allocate 路径）；勿长时间阻塞。
  */
 void rt_object_attach_sethook(void (*hook)(struct rt_object *object))
 {
@@ -173,6 +189,7 @@ void rt_object_attach_sethook(void (*hook)(struct rt_object *object))
  *        detaches from kernel object system.
  *
  * @param hook is the hook function
+ * @note 中文：detach/delete 在摘链前调用；IPC 层亦在 trytake/take/put 处触发对应全局 hook。
  */
 void rt_object_detach_sethook(void (*hook)(struct rt_object *object))
 {
@@ -191,6 +208,7 @@ void rt_object_detach_sethook(void (*hook)(struct rt_object *object))
  *            message queue - message is received by thread
  *
  * @param hook is the hook function.
+ * @note 中文：try 语义（可能拿不到资源即返回），在 ipc 等模块内 RT_OBJECT_HOOK_CALL。
  */
 void rt_object_trytake_sethook(void (*hook)(struct rt_object *object))
 {
@@ -210,6 +228,7 @@ void rt_object_trytake_sethook(void (*hook)(struct rt_object *object))
  *            timer - timer is started
  *
  * @param hook the hook function.
+ * @note 中文：资源已到手或定时器已启动等「成功占有」后调用。
  */
 void rt_object_take_sethook(void (*hook)(struct rt_object *object))
 {
@@ -221,6 +240,7 @@ void rt_object_take_sethook(void (*hook)(struct rt_object *object))
  *        is put to kernel object system.
  *
  * @param hook is the hook function
+ * @note 中文：释放信号量、发出邮箱、停止定时器等「归还/投递」侧调用。
  */
 void rt_object_put_sethook(void (*hook)(struct rt_object *object))
 {
@@ -243,6 +263,7 @@ void rt_object_put_sethook(void (*hook)(struct rt_object *object))
  *             RT_Object_Class_Thread/Semaphore/Mutex... etc
  *
  * @return the object type information or RT_NULL
+ * @note 中文：入参会去掉 RT_Object_Class_Static 再与容器 type 比较。
  */
 struct rt_object_information *
 rt_object_get_information(enum rt_object_class_type type)
@@ -265,6 +286,7 @@ RTM_EXPORT(rt_object_get_information);
  *             RT_Object_Class_Thread/Semaphore/Mutex... etc
  *
  * @return the length of object list
+ * @note 中文：在容器自旋锁内遍历计数；未知类型返回 0。
  */
 int rt_object_get_length(enum rt_object_class_type type)
 {
@@ -299,6 +321,7 @@ RTM_EXPORT(rt_object_get_length);
  * @param maxlen is the maximum number of pointers can be saved.
  *
  * @return the copied number of object pointers.
+ * @note 中文：最多拷贝 maxlen 个指针；未对指针有效性做额外校验。
  */
 int rt_object_get_pointers(enum rt_object_class_type type, rt_object_t *pointers, int maxlen)
 {
@@ -340,6 +363,8 @@ RTM_EXPORT(rt_object_get_pointers);
  * @param type is the object type.
  *
  * @param name is the object name. In system, the object's name must be unique.
+ * @note 中文：type | Static；RT_DEBUGING_ASSERT 下会检查同一容器内未重复登记
+ *         同一 object 指针。名字拷贝策略与 allocate 略有不同（见 allocate 注释）。
  */
 void rt_object_init(struct rt_object         *object,
                     enum rt_object_class_type type,
@@ -399,7 +424,7 @@ void rt_object_init(struct rt_object         *object,
     else
 #endif /* RT_USING_MODULE */
     {
-        /* insert object into information object list */
+        /* 插在容器哨兵头之后（init 路径：静态对象） */
         rt_list_insert_after(&(information->object_list), &(object->list));
     }
     rt_spin_unlock_irqrestore(&(information->spinlock), level);
@@ -410,6 +435,7 @@ void rt_object_init(struct rt_object         *object,
  *        and the memory of static object is not freed.
  *
  * @param object the specified object to be detached.
+ * @note 中文：仅从链表摘除并 type 置为 RT_Object_Class_Null；不释放对象本体内存（静态对象必须走此路径）。
  */
 void rt_object_detach(rt_object_t object)
 {
@@ -441,6 +467,8 @@ void rt_object_detach(rt_object_t object)
  * @param name is the object name. In system, the object's name must be unique.
  *
  * @return object
+ * @note 中文：RT_KERNEL_MALLOC(object_size)；名称写入 RT_NAME_MAX-1 保证留尾 0；
+ *         不可在中断中调用。无 Static 位，由 delete 回收。
  */
 rt_object_t rt_object_allocate(enum rt_object_class_type type, const char *name)
 {
@@ -494,7 +522,7 @@ rt_object_t rt_object_allocate(enum rt_object_class_type type, const char *name)
     else
 #endif /* RT_USING_MODULE */
     {
-        /* insert object into information object list */
+        /* 插在容器哨兵头之后（allocate 路径：堆对象） */
         rt_list_insert_after(&(information->object_list), &(object->list));
     }
     rt_spin_unlock_irqrestore(&(information->spinlock), level);
@@ -506,6 +534,7 @@ rt_object_t rt_object_allocate(enum rt_object_class_type type, const char *name)
  * @brief This function will delete an object and release object memory.
  *
  * @param object is the specified object to be deleted.
+ * @note 中文：断言非 Static；先 detach_hook 再摘链并 RT_KERNEL_FREE 整块。
  */
 void rt_object_delete(rt_object_t object)
 {
@@ -546,6 +575,7 @@ void rt_object_delete(rt_object_t object)
  * @param object is the specified object to be judged.
  *
  * @return RT_TRUE if a system object, RT_FALSE for others.
+ * @note 中文：即 type 是否带 RT_Object_Class_Static 位。
  */
 rt_bool_t rt_object_is_systemobject(rt_object_t object)
 {
@@ -565,6 +595,7 @@ rt_bool_t rt_object_is_systemobject(rt_object_t object)
  * @param object is the specified object to be get type.
  *
  * @return the type of object.
+ * @note 中文：返回已剥离 Static 的纯类枚举值。
  */
 rt_uint8_t rt_object_get_type(rt_object_t object)
 {
@@ -585,6 +616,8 @@ rt_uint8_t rt_object_get_type(rt_object_t object)
  * @return RT_EOK on succeed, otherwise the error from `iter`
  *
  * @note this function shall not be invoked in interrupt status.
+ * @note 中文：迭代器返回 1 表示提前结束且视为成功（与 _match_name 配合 find）；
+ *         返回负 errno 则中止并原样传出。
  */
 rt_err_t rt_object_for_each(rt_uint8_t type, rt_object_iter_t iter, void *data)
 {
@@ -658,6 +691,7 @@ static rt_err_t _match_name(struct rt_object *obj, void *data)
  * in object container.
  *
  * @note this function shall not be invoked in interrupt status.
+ * @note 中文：线性扫描该类链表，rt_strncmp 按 RT_NAME_MAX 比较；同名取先遍历到的。
  */
 rt_object_t rt_object_find(const char *name, rt_uint8_t type)
 {
@@ -687,6 +721,7 @@ rt_object_t rt_object_find(const char *name, rt_uint8_t type)
  * @return -RT_EINVAL if any parameter is invalid or RT_EOK if the operation is successfully executed
  *
  * @note this function shall not be invoked in interrupt status
+ * @note 中文：将 object->name 拷入缓冲区；不保证跨核/并发下与其它线程 rename 竞态。
  */
 rt_err_t rt_object_get_name(rt_object_t object, char *name, rt_uint8_t name_size)
 {
@@ -710,10 +745,10 @@ rt_err_t rt_object_get_name(rt_object_t object, char *name, rt_uint8_t name_size
  * @param data the custom data
  * @param data_destroy the custom object destroy callback
  *
- * @return the found object or RT_NULL if there is no this object
- * in object container.
+ * @return the created custom object cast to rt_object_t, or RT_NULL on failure.
  *
  * @note this function shall not be invoked in interrupt status.
+ * @note 中文：在 RT_Object_Class_Custom 容器登记；destroy 在 rt_custom_object_destroy 内先于 delete 调用。
  */
 
 rt_object_t rt_custom_object_create(const char *name, void *data, rt_err_t (*data_destroy)(void *))
@@ -734,9 +769,10 @@ rt_object_t rt_custom_object_create(const char *name, void *data, rt_err_t (*dat
  * This function will destroy a custom object
  * container.
  *
- * @param obj the specified name of object.
+ * @param obj the specified custom object.
  *
  * @note this function shall not be invoked in interrupt status.
+ * @note 中文：类型须为 Custom；返回值为 destroy 回调的 rt_err_t，未注册 destroy 时恒为 -1。
  */
 rt_err_t rt_custom_object_destroy(rt_object_t obj)
 {
