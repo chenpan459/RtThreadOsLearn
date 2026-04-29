@@ -2,3 +2,4 @@
 
 tcp_send -h 172.21.65.240 -p 60000 -l 512 -n 10
 
+find . -type d -name ".git" -exec rm -rf {} +

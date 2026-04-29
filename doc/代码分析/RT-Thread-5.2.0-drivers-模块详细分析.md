@@ -79,6 +79,50 @@ flowchart TB
 
 ---
 
+## 2.5 源码主线（必读调用链）
+
+如果你要“读懂 `components/drivers` 代码到底怎么跑起来”，建议先抓下面三条主线：
+
+### A. 设备生命周期主线（`core/device.c`）
+
+1. 驱动注册：`rt_device_register(dev, name, flags)`
+   - 做名字去重
+   - 调 `rt_object_init` 挂入内核对象系统
+   - 初始化 `ref_count/open_flag`
+2. 打开设备：`rt_device_open(dev, oflag)`
+   - 若未激活先调用驱动 `init`
+   - 首次 open 或 open 模式变化时调用驱动 `open`
+   - 增加引用计数
+3. 数据通路：`rt_device_read/write/control`
+   - 统一分发到具体驱动 `ops->read/write/control`
+4. 关闭设备：`rt_device_close`
+   - `ref_count` 归零时才真正调用驱动 `close`
+5. 可选回调：`rt_device_set_rx_indicate` / `rt_device_set_tx_complete`
+   - 中断收发型驱动（串口、CAN、网卡）大量使用
+
+这条主线是所有子系统的公共“骨架”。
+
+### B. 构建开关主线（`core/SConscript` + `core/Kconfig`）
+
+- 总是编译：`device.c`（前提 `RT_USING_DEVICE`）
+- 仅在 `RT_USING_DEV_BUS` 或 `RT_USING_DM` 打开时编译：`bus.c`
+- `RT_USING_DM` 打开时继续拉起：`dm.c`、`driver.c`、`platform.c`、`power_domain.c` 等
+- `RT_USING_OFW` 打开时再加入：`platform_ofw.c`
+
+也就是说：你看到的“drivers 代码体量”会随 Kconfig 成倍变化。
+
+### C. 子系统落地主线（以 CAN 为例）
+
+1. 框架层定义统一对象与 API（`components/drivers/can/dev_can.c`）
+2. BSP 实现 `rt_can_ops`（如 `configure/sendmsg/recvmsg/control`）
+3. BSP 中断回调转发到框架：`rt_hw_can_isr(can, event)`
+4. 应用统一通过 `rt_device_open/read/write/control` 使用
+
+串口、I2C、SPI、RTC、WDT 等子系统都遵循这个模式：  
+**“框架定义语义，BSP填硬件细节”**。
+
+---
+
 ## 3. 按子目录详解（与根 `drivers/Kconfig` 顺序对齐）
 
 下列与 `components/drivers/Kconfig` 中 `rsource` 顺序一致，并补充**未在根 Kconfig 列出但存在 `SConscript` 的目录**。
