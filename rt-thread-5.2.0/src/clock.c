@@ -55,7 +55,7 @@ static void (*rt_tick_hook)(void);
  *
  *
  * @param hook the hook function
- * @note 中文：每次 rt_tick_increase*() 推进 tick 时调用；须短小、不可阻塞。
+ * @note 每次 rt_tick_increase*() 推进 tick 时调用；须短小、不可阻塞。
  */
 void rt_tick_sethook(void (*hook)(void))
 {
@@ -74,7 +74,7 @@ void rt_tick_sethook(void (*hook)(void))
  * @brief    This function will return current tick from operating system startup.
  *
  * @return   Return current tick.
- * @note     中文：返回自 OS 启动以来的 tick 数；线程与中断中均可读，底层为原子读。
+ * @note     返回自 OS 启动以来的 tick 数；线程与中断中均可读，底层为原子读。
  */
 rt_tick_t rt_tick_get(void)
 {
@@ -87,7 +87,7 @@ RTM_EXPORT(rt_tick_get);
  * @brief    This function will set current tick.
  *
  * @param    tick is the value that you will set.
- * @note     中文：强制设置全局 tick，一般仅调试或同步场景使用。
+ * @note     强制设置全局 tick，一般仅调试或同步场景使用。
  */
 void rt_tick_set(rt_tick_t tick)
 {
@@ -128,7 +128,7 @@ static void _update_process_times(rt_tick_t tick)
 /**
  * @brief    This function will notify kernel there is one tick passed.
  *           Normally, this function is invoked by clock ISR.
- * @note     中文：须在时钟 ISR 中调用（断言要求中断嵌套深度 > 0）。
+ * @note     须在时钟 ISR 中调用（断言要求中断嵌套深度 > 0）。
  *           顺序：钩子 → CPU 统计 → 累加 tick → 时间片 → 仅 CPU0 执行软件定时器检查。
  */
 void rt_tick_increase(void)
@@ -167,7 +167,7 @@ void rt_tick_increase(void)
 /**
  * @brief    This function will notify kernel there is n tick passed.
  *           Normally, this function is invoked by clock ISR.
- * @note     中文：一次 ISR 内补偿多个 tick（例如时钟源分频或批处理中断）时使用；
+ * @note     一次 ISR 内补偿多个 tick（例如时钟源分频或批处理中断）时使用；
  *           SMP 下同样仅主核调用 rt_timer_check；使能 VDSO 时更新用户态可见时间。
  */
 void rt_tick_increase_tick(rt_tick_t tick)
@@ -213,7 +213,7 @@ void rt_tick_increase_tick(rt_tick_t tick)
  *              - Max 0x7fffffff
  *
  * @return   Return the calculated tick.
- * @note     中文：负数映射为永久等待 RT_WAITING_FOREVER；非负按 RT_TICK_PER_SECOND 换算并向上取整到 tick。
+ * @note     负数映射为永久等待 RT_WAITING_FOREVER；非负按 RT_TICK_PER_SECOND 换算并向上取整到 tick。
  */
 rt_tick_t rt_tick_from_millisecond(rt_int32_t ms)
 {
@@ -246,7 +246,7 @@ RTM_EXPORT(rt_tick_from_millisecond);
  * @note     if the value of RT_TICK_PER_SECOND is lower than 1000 or
  *           is not an integral multiple of 1000, this function will not
  *           provide the correct 1ms-based tick.
- * @note     中文：仅当每秒 tick 数为 1000 的约数时，才能用整数乘法精确换算毫秒；
+ * @note     仅当每秒 tick 数为 1000 的约数时，才能用整数乘法精确换算毫秒；
  *           否则编译告警并返回 0，需在其它文件用高精度定时器重定义本弱符号。
  *
  * @return   Return passed millisecond from boot.

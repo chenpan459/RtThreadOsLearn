@@ -52,7 +52,7 @@ static void (*rt_interrupt_leave_hook)(void);
  * @brief This function set a hook function when the system enter a interrupt
  *
  * @note The hook function must be simple and never be blocked or suspend.
- * @note 中文：在每次 rt_interrupt_enter() 末尾通过 RT_OBJECT_HOOK_CALL 触发。
+ * @note 在每次 rt_interrupt_enter() 末尾通过 RT_OBJECT_HOOK_CALL 触发。
  *       典型用途为统计、trace；禁止 malloc、信号量 take 等可能阻塞的操作。
  *
  * @param hook the function pointer to be called
@@ -68,7 +68,7 @@ void rt_interrupt_enter_sethook(void (*hook)(void))
  * @brief This function set a hook function when the system exit a interrupt.
  *
  * @note The hook function must be simple and never be blocked or suspend.
- * @note 中文：在 rt_interrupt_leave() 里先于 rt_atomic_sub(nest) 调用，与 enter
+ * @note 在 rt_interrupt_leave() 里先于 rt_atomic_sub(nest) 调用，与 enter
  *       侧 hook 成对；同样须 ISR 安全。
  *
  * @param hook the function pointer to be called
@@ -118,7 +118,7 @@ void *rt_interrupt_context_get(void)
  * @brief This function will be invoked by BSP, when enter interrupt service routine
  *
  * @note Please don't invoke this routine in application
- * @note 中文：原子自增嵌套计数；必须与 rt_interrupt_leave 严格配对（含嵌套中断
+ * @note 原子自增嵌套计数；必须与 rt_interrupt_leave 严格配对（含嵌套中断
  *       路径）。调度、部分 IPC 会依据 rt_interrupt_get_nest() 判定是否在中断里。
  *
  * @see rt_interrupt_leave
@@ -137,7 +137,7 @@ RTM_EXPORT(rt_interrupt_enter);
  * @brief This function will be invoked by BSP, when leave interrupt service routine
  *
  * @note Please don't invoke this routine in application
- * @note 中文：先 leave hook 再减计数，与 enter 侧「先加计数再 hook」顺序对称；
+ * @note 先 leave hook 再减计数，与 enter 侧「先加计数再 hook」顺序对称；
  *       若配对错误可能导致嵌套计数永不为 0，进而误判始终在中断上下文。
  *
  * @see rt_interrupt_enter
@@ -160,7 +160,7 @@ RTM_EXPORT(rt_interrupt_leave);
  * context is interrupt context.
  *
  * @return the number of nested interrupts.
- * @note 中文：返回 0 表示线程/非 ISR 上下文；大于 0 表示处于中断（含嵌套层数）。
+ * @note 返回 0 表示线程/非 ISR 上下文；大于 0 表示处于中断（含嵌套层数）。
  *       关本地 IRQ 后再读原子，避免与 enter/leave 交错读到不一致的中间状态。
  */
 rt_weak rt_uint8_t rt_interrupt_get_nest(void)
@@ -182,7 +182,7 @@ RTM_EXPORT(rt_hw_interrupt_enable);
 /**
  * @brief Query whether local IRQ is currently masked (weak default).
  *
- * @note 中文：默认恒为 RT_FALSE；若 SoC/移植层能区分「全局关中断」状态，可
+ * @note 默认恒为 RT_FALSE；若 SoC/移植层能区分「全局关中断」状态，可
  *       rt_weak 覆盖本函数供断言或调试使用。
  */
 rt_weak rt_bool_t rt_hw_interrupt_is_disabled(void)

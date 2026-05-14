@@ -57,7 +57,7 @@ void rt_thread_defunct_enqueue(rt_thread_t thread)
 
 /**
  * @brief Dequeue a thread from defunct queue.
- * @note 中文：队列为空时返回 RT_NULL；须与 enqueue 使用同一把自旋锁保证一致性。
+ * @note 队列为空时返回 RT_NULL；须与 enqueue 使用同一把自旋锁保证一致性。
  */
 rt_thread_t rt_thread_defunct_dequeue(void)
 {
@@ -78,7 +78,7 @@ rt_thread_t rt_thread_defunct_dequeue(void)
 
 /**
  * @brief This function will perform system background job when system idle.
- * @note 中文：一次调用会尽量清空当前队列中所有待销毁线程，避免残留；可在 idle 或 tsystem 中调用。
+ * @note 一次调用会尽量清空当前队列中所有待销毁线程，避免残留；可在 idle 或 tsystem 中调用。
  */
 void rt_defunct_execute(void)
 {
@@ -179,7 +179,7 @@ static void rt_thread_system_entry(void *parameter)
 
 /**
  * @brief 初始化延迟销毁子系统：自旋锁；在 SMP/SMART 下创建 tsystem 回收线程。
- * @note 中文：须在调度器启动前与其它内核线程初始化顺序一致调用（见 components.c 中 rtthread_startup）。
+ * @note 须在调度器启动前与其它内核线程初始化顺序一致调用（见 components.c 中 rtthread_startup）。
  */
 void rt_thread_defunct_init(void)
 {

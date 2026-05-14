@@ -246,7 +246,7 @@ void *rt_signal_check(void* context)
  *
  * @return   Return the old processing function of this signal. ONLY When the
  *           return value is SIG_ERR, the operation is failed.
- * @note     中文：首次安装会 rt_thread_alloc_sig 分配向量表；SIG_IGN/SIG_DFL
+ * @note     首次安装会 rt_thread_alloc_sig 分配向量表；SIG_IGN/SIG_DFL
  *           分别清空或默认处理。
  */
 rt_sighandler_t rt_signal_install(int signo, rt_sighandler_t handler)
@@ -290,7 +290,7 @@ rt_sighandler_t rt_signal_install(int signo, rt_sighandler_t handler)
  * @see      rt_thread_kill()
  *
  * @param    signo is a specific signal value (range: 0 ~ RT_SIG_MAX).
- * @note     中文：清除 sig_mask 中对应位，使 pending&mask 不再匹配（屏蔽该号）。
+ * @note     清除 sig_mask 中对应位，使 pending&mask 不再匹配（屏蔽该号）。
  */
 void rt_signal_mask(int signo)
 {
@@ -314,7 +314,7 @@ void rt_signal_mask(int signo)
  * @see      rt_thread_kill()
  *
  * @param    signo is a specific signal value (range: 0 ~ RT_SIG_MAX).
- * @note     中文：置位 sig_mask 允许该号；若已有 pending 则立即 _signal_deliver。
+ * @note     置位 sig_mask 允许该号；若已有 pending 则立即 _signal_deliver。
  */
 void rt_signal_unmask(int signo)
 {
@@ -350,7 +350,7 @@ void rt_signal_unmask(int signo)
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the signal wait failed.
- * @note     中文：在 *set 与 pending 无交集时可阻塞；唤醒后从 si_list 摘首个
+ * @note     在 *set 与 pending 无交集时可阻塞；唤醒后从 si_list 摘首个
  *           匹配 siginfo 拷贝到 *si 并清 pending 位。timeout==0 且未就绪则 -RT_ETIMEOUT。
  */
 int rt_signal_wait(const rt_sigset_t *set, rt_siginfo_t *si, rt_int32_t timeout)
@@ -611,7 +611,7 @@ void rt_thread_free_sig(rt_thread_t tid)
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the signal send failed.
- * @note     中文：同号已 pending 时仅更新链上已有节点的 siginfo；新节点挂链后
+ * @note     同号已 pending 时仅更新链上已有节点的 siginfo；新节点挂链后
  *           置 pending 位并 _signal_deliver。池耗尽返回 -RT_EEMPTY。
  */
 int rt_thread_kill(rt_thread_t tid, int sig)

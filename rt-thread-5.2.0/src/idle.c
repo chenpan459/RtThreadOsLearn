@@ -75,7 +75,7 @@ static struct rt_spinlock _hook_spinlock;
  *         -RT_EFULL: hook list is full.
  *
  * @note the hook function must be simple and never be blocked or suspend.
- * @note 中文：在空闲链表中注册回调，须短小不可阻塞；与 delhook 共用 _hook_spinlock 保护表项。
+ * @note 在空闲链表中注册回调，须短小不可阻塞；与 delhook 共用 _hook_spinlock 保护表项。
  */
 rt_err_t rt_thread_idle_sethook(void (*hook)(void))
 {
@@ -107,7 +107,7 @@ rt_err_t rt_thread_idle_sethook(void (*hook)(void))
  *
  * @return RT_EOK: delete OK.
  *         -RT_ENOSYS: hook was not found.
- * @note 中文：从固定大小表中移除指定指针；未找到返回 -RT_ENOSYS。
+ * @note 从固定大小表中移除指定指针；未找到返回 -RT_ENOSYS。
  */
 rt_err_t rt_thread_idle_delhook(void (*hook)(void))
 {
@@ -182,7 +182,7 @@ static void idle_thread_entry(void *parameter)
  * @brief This function will initialize idle thread, then start it.
  *
  * @note this function must be invoked when system init.
- * @note 中文：为每个 CPU 创建优先级为 RT_THREAD_PRIORITY_MAX-1 的 idle，写入 rt_cpu_index(i)->idle_thread 并启动。
+ * @note 为每个 CPU 创建优先级为 RT_THREAD_PRIORITY_MAX-1 的 idle，写入 rt_cpu_index(i)->idle_thread 并启动。
  */
 void rt_thread_idle_init(void)
 {
@@ -229,7 +229,7 @@ void rt_thread_idle_init(void)
 
 /**
  * @brief This function will get the handler of the idle thread.
- * @note 中文：内部调用 rt_cpu_get_id()，须满足其调用约束（绑核/关中断/调度未就绪等之一）。
+ * @note 内部调用 rt_cpu_get_id()，须满足其调用约束（绑核/关中断/调度未就绪等之一）。
  */
 rt_thread_t rt_thread_idle_gethandler(void)
 {

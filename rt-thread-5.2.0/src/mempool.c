@@ -52,7 +52,7 @@ static void (*rt_mp_free_hook)(struct rt_mempool *mp, void *block);
  *        block is allocated from the memory pool.
  *
  * @param hook the hook function
- * @note 中文：在自旋锁释放之后调用；hook 内勿再对同一 mp 做可能阻塞的 alloc。
+ * @note 在自旋锁释放之后调用；hook 内勿再对同一 mp 做可能阻塞的 alloc。
  */
 void rt_mp_alloc_sethook(void (*hook)(struct rt_mempool *mp, void *block))
 {
@@ -64,7 +64,7 @@ void rt_mp_alloc_sethook(void (*hook)(struct rt_mempool *mp, void *block))
  *        block is released to the memory pool.
  *
  * @param hook the hook function
- * @note 中文：在加锁之前调用，参数 block 为用户区指针。
+ * @note 在加锁之前调用，参数 block 为用户区指针。
  */
 void rt_mp_free_sethook(void (*hook)(struct rt_mempool *mp, void *block))
 {
@@ -95,7 +95,7 @@ void rt_mp_free_sethook(void (*hook)(struct rt_mempool *mp, void *block))
  * @param  block_size is the size for each block (user payload, aligned).
  *
  * @return RT_EOK
- * @note   中文：静态池；start/size 由调用方提供，块数 = size / (block_size+指针宽)。
+ * @note   静态池；start/size 由调用方提供，块数 = size / (block_size+指针宽)。
  *         初始化把各槽串成空闲链，最后一槽 next 置 RT_NULL。
  */
 rt_err_t rt_mp_init(struct rt_mempool *mp,
@@ -155,7 +155,7 @@ RTM_EXPORT(rt_mp_init);
  * @param  mp is the memory pool object.
  *
  * @return RT_EOK
- * @note   中文：唤醒所有阻塞在池上的线程；不释放 start_address 指向的静态内存。
+ * @note   唤醒所有阻塞在池上的线程；不释放 start_address 指向的静态内存。
  */
 rt_err_t rt_mp_detach(struct rt_mempool *mp)
 {
@@ -190,7 +190,7 @@ RTM_EXPORT(rt_mp_detach);
  * @param block_size is the size for each block.
  *
  * @return the created mempool object
- * @note   中文：从堆分配对象与池内存，勿在中断里调用（RT_DEBUG_NOT_IN_INTERRUPT）。
+ * @note   从堆分配对象与池内存，勿在中断里调用（RT_DEBUG_NOT_IN_INTERRUPT）。
  *         失败时若池内存申请失败会删除已分配的内核对象。
  */
 rt_mp_t rt_mp_create(const char *name,
@@ -259,7 +259,7 @@ RTM_EXPORT(rt_mp_create);
  * @param mp is the memory pool object.
  *
  * @return RT_EOK
- * @note   中文：先唤醒阻塞线程，再 rt_free(start_address)，最后删除内核对象。
+ * @note   先唤醒阻塞线程，再 rt_free(start_address)，最后删除内核对象。
  */
 rt_err_t rt_mp_delete(rt_mp_t mp)
 {
@@ -298,7 +298,7 @@ RTM_EXPORT(rt_mp_delete);
  *             - 0 for not waiting, allocating memory immediately.
  *
  * @return the allocated memory block or RT_NULL on allocated failed.
- * @note   中文：无空闲块且 time==0 返回 RT_NULL 并置 errno -RT_ETIMEOUT；阻塞路径
+ * @note   无空闲块且 time==0 返回 RT_NULL 并置 errno -RT_ETIMEOUT；阻塞路径
  *         使用线程定时器扣减剩余 tick。返回前在槽首写入 mp 指针供 rt_mp_free 使用。
  */
 void *rt_mp_alloc(rt_mp_t mp, rt_int32_t time)
@@ -390,7 +390,7 @@ RTM_EXPORT(rt_mp_alloc);
  * @brief This function will release a memory block.
  *
  * @param block the address of memory block to be released.
- * @note 中文：block 须为 rt_mp_alloc 返回值；通过 block 前一字取 mp，再头插回
+ * @note block 须为 rt_mp_alloc 返回值；通过 block 前一字取 mp，再头插回
  *       空闲链。若有阻塞线程则释放锁后 schedule 唤醒一个。
  */
 void rt_mp_free(void *block)

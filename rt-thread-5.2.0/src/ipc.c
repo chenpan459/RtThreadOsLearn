@@ -89,7 +89,7 @@ extern void (*rt_object_put_hook)(struct rt_object *object);
  * @brief    This function will initialize an IPC object, such as semaphore, mutex, messagequeue and mailbox.
  *
  * @note     Executing this function will complete an initialization of the suspend thread list of the ipc object.
- * @note     中文：仅初始化 ipc->suspend_thread 链表头；各类型对象另有自己的成员初始化。
+ * @note     仅初始化 ipc->suspend_thread 链表头；各类型对象另有自己的成员初始化。
  *
  * @param    ipc is a pointer to the IPC object.
  *
@@ -120,7 +120,7 @@ rt_inline rt_err_t _ipc_object_init(struct rt_ipc_object *ipc)
  *          will not be changed.
  *
  * @return  struct rt_thread * RT_NULL if failed, otherwise the thread resumed
- * @note     中文：从 susp_list 摘头结点并 rt_sched_thread_ready；调用方须已 rt_sched_lock。
+ * @note     从 susp_list 摘头结点并 rt_sched_thread_ready；调用方须已 rt_sched_lock。
  */
 struct rt_thread *rt_susp_list_dequeue(rt_list_t *susp_list, rt_err_t thread_error)
 {
@@ -180,7 +180,7 @@ struct rt_thread *rt_susp_list_dequeue(rt_list_t *susp_list, rt_err_t thread_err
  *
  * @return  Return the operation status. When the return value is RT_EOK, the function is successfully executed.
  *          When the return value is any other values, it means this operation failed.
- * @note     中文：反复 rt_susp_list_dequeue 直至挂起链为空，用于广播唤醒（如 delete/reset）。
+ * @note     反复 rt_susp_list_dequeue 直至挂起链为空，用于广播唤醒（如 delete/reset）。
  *
  */
 rt_err_t rt_susp_list_resume_all(rt_list_t *susp_list, rt_err_t thread_error)
@@ -405,7 +405,7 @@ static void _sem_object_init(rt_sem_t       sem,
  *           If the return value is any other values, it represents the initialization failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：静态信号量，内存由用户分配；max 固定为 RT_SEM_VALUE_MAX。配对使用 rt_sem_detach。
+ * @note     静态信号量，内存由用户分配；max 固定为 RT_SEM_VALUE_MAX。配对使用 rt_sem_detach。
  * @note     value 典型用法：资源池令牌=可用资源数；事件通知则常置 0，由 release 递增值唤醒等待者。
  */
 rt_err_t rt_sem_init(rt_sem_t    sem,
@@ -445,7 +445,7 @@ RTM_EXPORT(rt_sem_init);
  * @warning  This function can ONLY detach a static semaphore initialized by the rt_sem_init() function.
  *           If the semaphore is created by the rt_sem_create() function, you MUST NOT USE this function to detach it,
  *           ONLY USE the rt_sem_delete() function to complete the deletion.
- * @note     中文：唤醒挂起线程时置 error 为 RT_ERROR，表示对象已失效；再从容器摘除，不释放 sem 存储本身。
+ * @note     唤醒挂起线程时置 error 为 RT_ERROR，表示对象已失效；再从容器摘除，不释放 sem 存储本身。
  */
 rt_err_t rt_sem_detach(rt_sem_t sem)
 {
@@ -501,7 +501,7 @@ RTM_EXPORT(rt_sem_detach);
  * @return   Return a pointer to the semaphore object. When the return value is RT_NULL, it means the creation failed.
  *
  * @warning  This function can NOT be called in interrupt context. You can use macor RT_DEBUG_NOT_IN_INTERRUPT to check it.
- * @note     中文：动态信号量，对象与内存在堆上；配对 rt_sem_delete。不可在 ISR 中调用。
+ * @note     动态信号量，对象与内存在堆上；配对 rt_sem_delete。不可在 ISR 中调用。
  */
 rt_sem_t rt_sem_create(const char *name, rt_uint32_t value, rt_uint8_t flag)
 {
@@ -541,7 +541,7 @@ RTM_EXPORT(rt_sem_create);
  * @warning  This function can ONLY delete a semaphore initialized by the rt_sem_create() function.
  *           If the semaphore is initialized by the rt_sem_init() function, you MUST NOT USE this function to delete it,
  *           ONLY USE the rt_sem_detach() function to complete the detachment.
- * @note     中文：rt_object_delete 会释放堆上的信号量控制块；与 rt_sem_create 严格配对。
+ * @note     rt_object_delete 会释放堆上的信号量控制块；与 rt_sem_create 严格配对。
  */
 rt_err_t rt_sem_delete(rt_sem_t sem)
 {
@@ -725,7 +725,7 @@ RTM_EXPORT(rt_sem_take_killable);
  *
  * @return   Return the operation status. ONLY When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the semaphore take failed.
- * @note     中文：内部即 rt_sem_take(sem, 0)；无计数时立即返回 -RT_ETIMEOUT，永不阻塞。
+ * @note     内部即 rt_sem_take(sem, 0)；无计数时立即返回 -RT_ETIMEOUT，永不阻塞。
  */
 rt_err_t rt_sem_trytake(rt_sem_t sem)
 {
@@ -745,7 +745,7 @@ RTM_EXPORT(rt_sem_trytake);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the semaphore release failed.
- * @note     中文：V 操作。若有阻塞线程则唤醒队首一个（不增加 value）；否则 value++，已达 max 返回 -RT_EFULL。
+ * @note     V 操作。若有阻塞线程则唤醒队首一个（不增加 value）；否则 value++，已达 max 返回 -RT_EFULL。
  *           可在 ISR 中调用（无阻塞路径），唤醒后按需 rt_schedule。
  */
 rt_err_t rt_sem_release(rt_sem_t sem)
@@ -813,7 +813,7 @@ RTM_EXPORT(rt_sem_release);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that this function failed to execute.
- * @note     中文：RT_IPC_CMD_RESET 清空等待并设 value=(rt_uintptr_t)arg；RT_IPC_CMD_SET_VLIMIT 调整 max_value，
+ * @note     RT_IPC_CMD_RESET 清空等待并设 value=(rt_uintptr_t)arg；RT_IPC_CMD_SET_VLIMIT 调整 max_value，
  *           若新上限小于当前 value 且仍有阻塞线程则全部唤醒并报错。
  */
 rt_err_t rt_sem_control(rt_sem_t sem, int cmd, void *arg)
@@ -1083,7 +1083,7 @@ static void _mutex_before_delete_detach(rt_mutex_t mutex)
  *           If the return value is any other values, it represents the initialization failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：静态互斥量；flag 参数已废弃。owner/hold 表递归，ceiling_priority 默认 0xFF 表示未启用天花板。
+ * @note     静态互斥量；flag 参数已废弃。owner/hold 表递归，ceiling_priority 默认 0xFF 表示未启用天花板。
  * @note     配对 rt_mutex_detach；递归深度受 RT_MUTEX_HOLD_MAX 限制。
  */
 rt_err_t rt_mutex_init(rt_mutex_t mutex, const char *name, rt_uint8_t flag)
@@ -1133,7 +1133,7 @@ RTM_EXPORT(rt_mutex_init);
  * @warning  This function can ONLY detach a static mutex initialized by the rt_mutex_init() function.
  *           If the mutex is created by the rt_mutex_create() function, you MUST NOT USE this function to detach it,
  *           ONLY USE the rt_mutex_delete() function to complete the deletion.
- * @note     中文：先 _mutex_before_delete_detach 再 detach；不释放静态 mutex 存储。
+ * @note     先 _mutex_before_delete_detach 再 detach；不释放静态 mutex 存储。
  */
 rt_err_t rt_mutex_detach(rt_mutex_t mutex)
 {
@@ -1158,7 +1158,7 @@ RTM_EXPORT(rt_mutex_detach);
  *
  * @param mutex is a pointer to a mutex object.
  * @param thread is the thread should be dropped from mutex.
- * @note     中文：将 thread 从 mutex 挂起链摘除（如超时、信号打断）；重算 mutex->priority 并可能下调 owner。
+ * @note     将 thread 从 mutex 挂起链摘除（如超时、信号打断）；重算 mutex->priority 并可能下调 owner。
  */
 void rt_mutex_drop_thread(rt_mutex_t mutex, rt_thread_t thread)
 {
@@ -1232,7 +1232,7 @@ void rt_mutex_drop_thread(rt_mutex_t mutex, rt_thread_t thread)
  * @param priority is the priority should be set to mutex.
  *
  * @return return the old priority ceiling
- * @note     中文：设置天花板优先级并返回旧值；若已有 owner，立即按新天花板重算其有效优先级。
+ * @note     设置天花板优先级并返回旧值；若已有 owner，立即按新天花板重算其有效优先级。
  */
 rt_uint8_t rt_mutex_setprioceiling(rt_mutex_t mutex, rt_uint8_t priority)
 {
@@ -1276,7 +1276,7 @@ RTM_EXPORT(rt_mutex_setprioceiling);
  * @param mutex is a pointer to a mutex object.
  *
  * @return return the current priority ceiling of the mutex.
- * @note     中文：0xFF 表示未设置天花板；读操作在 spinlock 内完成。
+ * @note     0xFF 表示未设置天花板；读操作在 spinlock 内完成。
  */
 rt_uint8_t rt_mutex_getprioceiling(rt_mutex_t mutex)
 {
@@ -1316,7 +1316,7 @@ RTM_EXPORT(rt_mutex_getprioceiling);
  * @return   Return a pointer to the mutex object. When the return value is RT_NULL, it means the creation failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：堆上动态创建，配对 rt_mutex_delete；不可在 ISR 中调用。
+ * @note     堆上动态创建，配对 rt_mutex_delete；不可在 ISR 中调用。
  */
 rt_mutex_t rt_mutex_create(const char *name, rt_uint8_t flag)
 {
@@ -1367,7 +1367,7 @@ RTM_EXPORT(rt_mutex_create);
  * @warning  This function can ONLY delete a mutex initialized by the rt_mutex_create() function.
  *           If the mutex is initialized by the rt_mutex_init() function, you MUST NOT USE this function to delete it,
  *           ONLY USE the rt_mutex_detach() function to complete the detachment.
- * @note     中文：rt_object_delete 释放堆内存；与 rt_mutex_create 严格配对。
+ * @note     rt_object_delete 释放堆内存；与 rt_mutex_create 严格配对。
  */
 rt_err_t rt_mutex_delete(rt_mutex_t mutex)
 {
@@ -1665,7 +1665,7 @@ RTM_EXPORT(rt_mutex_take_killable);
  *
  * @return   Return the operation status. ONLY When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the mutex take failed.
- * @note     中文：等价 rt_mutex_take(mutex, 0)；已被占用立即 -RT_ETIMEOUT。
+ * @note     等价 rt_mutex_take(mutex, 0)；已被占用立即 -RT_ETIMEOUT。
  */
 rt_err_t rt_mutex_trytake(rt_mutex_t mutex)
 {
@@ -1680,7 +1680,7 @@ RTM_EXPORT(rt_mutex_trytake);
  * @note     If there are threads suspended on this mutex, the first thread in the list of this mutex object
  *           will be resumed, and a thread scheduling (rt_schedule) will be executed.
  *           If no threads are suspended on this mutex, the count value mutex->value of this mutex will increase by 1.
- * @note     中文：仅 owner 可 release；每 release 一层 hold--，到 0 才真正释放锁。有等待者时直接把 mutex
+ * @note     仅 owner 可 release；每 release 一层 hold--，到 0 才真正释放锁。有等待者时直接把 mutex
  *           交给队首线程（其 hold=1），并更新继承优先级；无等待者则 owner=NULL。非 owner 返回 -RT_ERROR。
  *
  * @param    mutex is a pointer to a mutex object.
@@ -1827,7 +1827,7 @@ RTM_EXPORT(rt_mutex_release);
  * @brief    This function will set some extra attributions of a mutex object.
  *
  * @note     Currently this function does not implement the control function.
- * @note     中文：当前桩实现恒返回 -RT_EINVAL；扩展控制命令需在此处分派。
+ * @note     当前桩实现恒返回 -RT_EINVAL；扩展控制命令需在此处分派。
  *
  * @param    mutex is a pointer to a mutex object.
  *
@@ -1901,7 +1901,7 @@ RTM_EXPORT(rt_mutex_control);
  *           If the return value is any other values, it represents the initialization failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：静态事件对象；event->set 初值为 0；配对 rt_event_detach。
+ * @note     静态事件对象；event->set 初值为 0；配对 rt_event_detach。
  */
 rt_err_t rt_event_init(rt_event_t event, const char *name, rt_uint8_t flag)
 {
@@ -1945,7 +1945,7 @@ RTM_EXPORT(rt_event_init);
  * @warning  This function can ONLY detach a static event initialized by the rt_event_init() function.
  *           If the event is created by the rt_event_create() function, you MUST NOT USE this function to detach it,
  *           ONLY USE the rt_event_delete() function to complete the deletion.
- * @note     中文：唤醒所有阻塞线程并置 RT_ERROR；再从内核容器 detach，不释放静态 event 内存。
+ * @note     唤醒所有阻塞线程并置 RT_ERROR；再从内核容器 detach，不释放静态 event 内存。
  */
 rt_err_t rt_event_detach(rt_event_t event)
 {
@@ -1996,7 +1996,7 @@ RTM_EXPORT(rt_event_detach);
  * @return   Return a pointer to the event object. When the return value is RT_NULL, it means the creation failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：堆上动态创建，配对 rt_event_delete；不可在 ISR 中调用。
+ * @note     堆上动态创建，配对 rt_event_delete；不可在 ISR 中调用。
  */
 rt_event_t rt_event_create(const char *name, rt_uint8_t flag)
 {
@@ -2043,7 +2043,7 @@ RTM_EXPORT(rt_event_create);
  * @warning  This function can ONLY delete an event initialized by the rt_event_create() function.
  *           If the event is initialized by the rt_event_init() function, you MUST NOT USE this function to delete it,
  *           ONLY USE the rt_event_detach() function to complete the detachment.
- * @note     中文：与 rt_event_create 配对；rt_object_delete 释放控制块及堆资源。
+ * @note     与 rt_event_create 配对；rt_object_delete 释放控制块及堆资源。
  */
 rt_err_t rt_event_delete(rt_event_t event)
 {
@@ -2084,7 +2084,7 @@ RTM_EXPORT(rt_event_delete);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the event detach failed.
- * @note     中文：set 非 0；先 event->set |= set 再扫描挂起链。对每个线程用其 recv 时保存的
+ * @note     set 非 0；先 event->set |= set 再扫描挂起链。对每个线程用其 recv 时保存的
  *           event_set/event_info（AND/OR/CLEAR）判断是否满足；满足则就绪，并按 CLEAR 累积要清除的位。
  */
 rt_err_t rt_event_send(rt_event_t event, rt_uint32_t set)
@@ -2392,7 +2392,7 @@ RTM_EXPORT(rt_event_recv_killable);
  * @brief    This function will set some extra attributions of an event object.
  *
  * @note     Currently this function only supports the RT_IPC_CMD_RESET command to reset the event.
- * @note     中文：RESET 时唤醒所有等待线程（RT_ERROR）、event->set 置 0，并 rt_schedule。
+ * @note     RESET 时唤醒所有等待线程（RT_ERROR）、event->set 置 0，并 rt_schedule。
  *
  * @param    event is a pointer to an event object.
  *
@@ -2491,7 +2491,7 @@ RTM_EXPORT(rt_event_control);
  *           If the return value is any other values, it represents the initialization failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：静态邮箱；msgpool 指向用户提供的缓冲区，长度至少 size * sizeof(rt_ubase_t)；配对 rt_mb_detach。
+ * @note     静态邮箱；msgpool 指向用户提供的缓冲区，长度至少 size * sizeof(rt_ubase_t)；配对 rt_mb_detach。
  */
 rt_err_t rt_mb_init(rt_mailbox_t mb,
                     const char  *name,
@@ -2546,7 +2546,7 @@ RTM_EXPORT(rt_mb_init);
  * @warning  This function can ONLY detach a static mailbox initialized by the rt_mb_init() function.
  *           If the mailbox is created by the rt_mb_create() function, you MUST NOT USE this function to detach it,
  *           ONLY USE the rt_mb_delete() function to complete the deletion.
- * @note     中文：同时唤醒接收者与满邮箱上阻塞的发送者；不释放用户提供的 msgpool。
+ * @note     同时唤醒接收者与满邮箱上阻塞的发送者；不释放用户提供的 msgpool。
  */
 rt_err_t rt_mb_detach(rt_mailbox_t mb)
 {
@@ -2602,7 +2602,7 @@ RTM_EXPORT(rt_mb_detach);
  * @return   Return a pointer to the mailbox object. When the return value is RT_NULL, it means the creation failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：堆上分配控制块与 msg_pool（size 个 rt_ubase_t）；配对 rt_mb_delete。
+ * @note     堆上分配控制块与 msg_pool（size 个 rt_ubase_t）；配对 rt_mb_delete。
  */
 rt_mailbox_t rt_mb_create(const char *name, rt_size_t size, rt_uint8_t flag)
 {
@@ -2663,7 +2663,7 @@ RTM_EXPORT(rt_mb_create);
  * @warning  This function can only delete mailbox created by the rt_mb_create() function.
  *           If the mailbox is initialized by the rt_mb_init() function, you MUST NOT USE this function to delete it,
  *           ONLY USE the rt_mb_detach() function to complete the detachment.
- * @note     中文：与 rt_mb_create 配对；先唤醒两类阻塞线程，再释放 msg_pool 与对象内存。
+ * @note     与 rt_mb_create 配对；先唤醒两类阻塞线程，再释放 msg_pool 与对象内存。
  */
 rt_err_t rt_mb_delete(rt_mailbox_t mb)
 {
@@ -2718,7 +2718,7 @@ RTM_EXPORT(rt_mb_delete);
  *           If the return value is any other values, it means that the mailbox detach failed.
  *
  * @warning  This function can be called in interrupt context and thread context.
- * @note     中文：entry==size 为满；满时若 timeout==0 返回 -RT_EFULL；否则挂到 suspend_sender_thread。
+ * @note     entry==size 为满；满时若 timeout==0 返回 -RT_EFULL；否则挂到 suspend_sender_thread。
  *           timeout>0 时在循环中扣减已消耗 tick 以支持累计限时。非阻塞发送可在 ISR（timeout==0）。
  */
 static rt_err_t _rt_mb_send_wait(rt_mailbox_t mb,
@@ -2895,7 +2895,7 @@ RTM_EXPORT(rt_mb_send_wait_killable);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the mailbox detach failed.
- * @note     中文：即 rt_mb_send_wait(mb, value, 0)；满则立即 -RT_EFULL，不阻塞。
+ * @note     即 rt_mb_send_wait(mb, value, 0)；满则立即 -RT_EFULL，不阻塞。
  */
 rt_err_t rt_mb_send(rt_mailbox_t mb, rt_ubase_t value)
 {
@@ -2931,7 +2931,7 @@ RTM_EXPORT(rt_mb_send_killable);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the mailbox detach failed.
- * @note     中文：不阻塞；通过回绕 out_offset 把邮件插在「队头」一侧，recv 仍按 out 顺序会先取到该 urgent。
+ * @note     不阻塞；通过回绕 out_offset 把邮件插在「队头」一侧，recv 仍按 out 顺序会先取到该 urgent。
  */
 rt_err_t rt_mb_urgent(rt_mailbox_t mb, rt_ubase_t value)
 {
@@ -3010,7 +3010,7 @@ RTM_EXPORT(rt_mb_urgent);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the mailbox receive failed.
- * @note     中文：value 为出参指针，用于接收一条 rt_ubase_t 邮件。entry==0 为空；空且 timeout==0 返回
+ * @note     value 为出参指针，用于接收一条 rt_ubase_t 邮件。entry==0 为空；空且 timeout==0 返回
  *           -RT_ETIMEOUT。取信后若有发送者在 suspend_sender_thread 上阻塞，唤醒其一。
  */
 static rt_err_t _rt_mb_recv(rt_mailbox_t mb, rt_ubase_t *value, rt_int32_t timeout, int suspend_flag)
@@ -3168,7 +3168,7 @@ RTM_EXPORT(rt_mb_recv_killable);
  * @brief    This function will set some extra attributions of a mailbox object.
  *
  * @note     Currently this function only supports the RT_IPC_CMD_RESET command to reset the mailbox.
- * @note     中文：RESET 唤醒所有 recv/send 阻塞线程（RT_ERROR），清空 entry 与环形下标（不 memset 池内容，
+ * @note     RESET 唤醒所有 recv/send 阻塞线程（RT_ERROR），清空 entry 与环形下标（不 memset 池内容，
  *           但逻辑上邮箱为空）。
  *
  * @param    mb is a pointer to a mailbox object.
@@ -3277,7 +3277,7 @@ RTM_EXPORT(rt_mb_control);
  *           If the return value is any other values, it represents the initialization failed.
  *
  * @warning  This function can ONLY be called from threads.
- * @note     中文：静态消息队列；msgpool 为连续内存，pool_size 为字节总长；max_msgs 由槽大小反推。
+ * @note     静态消息队列；msgpool 为连续内存，pool_size 为字节总长；max_msgs 由槽大小反推。
  *           单条消息最大字节数为 msg_size（发送时不可超过）。配对 rt_mq_detach。
  */
 rt_err_t rt_mq_init(rt_mq_t     mq,
@@ -3362,7 +3362,7 @@ RTM_EXPORT(rt_mq_init);
  * @warning  This function can ONLY detach a static messagequeue initialized by the rt_mq_init() function.
  *           If the messagequeue is created by the rt_mq_create() function, you MUST NOT USE this function to detach it,
  *           and ONLY USE the rt_mq_delete() function to complete the deletion.
- * @note     中文：唤醒 recv/send 两侧阻塞线程；不释放用户提供的 msgpool。
+ * @note     唤醒 recv/send 两侧阻塞线程；不释放用户提供的 msgpool。
  */
 rt_err_t rt_mq_detach(rt_mq_t mq)
 {
@@ -3419,7 +3419,7 @@ RTM_EXPORT(rt_mq_detach);
  * @return   Return a pointer to the messagequeue object. When the return value is RT_NULL, it means the creation failed.
  *
  * @warning  This function can NOT be called in interrupt context. You can use macor RT_DEBUG_NOT_IN_INTERRUPT to check it.
- * @note     中文：堆上分配控制块与 msg_pool；max_msgs 为槽个数。配对 rt_mq_delete。
+ * @note     堆上分配控制块与 msg_pool；max_msgs 为槽个数。配对 rt_mq_delete。
  */
 rt_mq_t rt_mq_create(const char *name,
                      rt_size_t   msg_size,
@@ -3506,7 +3506,7 @@ RTM_EXPORT(rt_mq_create);
  *           If the messagequeue is initialized by the rt_mq_init() function, you MUST NOT USE this function to delete it,
  *           ONLY USE the rt_mq_detach() function to complete the detachment.
  *           for example,the rt_mq_create() function, it cannot be called in interrupt context.
- * @note     中文：与 rt_mq_create 配对；先唤醒 recv/send 阻塞线程，再 RT_KERNEL_FREE(msg_pool) 并删除对象。
+ * @note     与 rt_mq_create 配对；先唤醒 recv/send 阻塞线程，再 RT_KERNEL_FREE(msg_pool) 并删除对象。
  */
 rt_err_t rt_mq_delete(rt_mq_t mq)
 {
@@ -3569,7 +3569,7 @@ RTM_EXPORT(rt_mq_delete);
  *
  * @warning  This function can be called in interrupt context and thread
  * context.
- * @note     中文：从 msg_queue_free 取空闲槽；无槽且 timeout==0 返回 -RT_EFULL；否则在 suspend_sender_thread
+ * @note     从 msg_queue_free 取空闲槽；无槽且 timeout==0 返回 -RT_EFULL；否则在 suspend_sender_thread
  *           上阻塞。拷贝 buffer 到 GET_MESSAGEBYTE_ADDR(msg)；无优先级特性时 prio 被 RT_UNUSED 忽略。
  */
 static rt_err_t _rt_mq_send_wait(rt_mq_t mq,
@@ -3814,7 +3814,7 @@ RTM_EXPORT(rt_mq_send_wait_killable);
  *           If the return value is any other values, it means that the message queue send failed.
  *
  * @warning  This function can be called in interrupt context and thread context.
- * @note     中文：即 rt_mq_send_wait(..., timeout=0)；队列满立即 -RT_EFULL。
+ * @note     即 rt_mq_send_wait(..., timeout=0)；队列满立即 -RT_EFULL。
  */
 rt_err_t rt_mq_send(rt_mq_t mq, const void *buffer, rt_size_t size)
 {
@@ -3850,7 +3850,7 @@ RTM_EXPORT(rt_mq_send_killable);
  *
  * @return   Return the operation status. When the return value is RT_EOK, the operation is successful.
  *           If the return value is any other values, it means that the message queue send failed.
- * @note     中文：非阻塞；无空闲槽返回 -RT_EFULL；否则头插 msg_queue_head，recv 优先取到。
+ * @note     非阻塞；无空闲槽返回 -RT_EFULL；否则头插 msg_queue_head，recv 优先取到。
  */
 rt_err_t rt_mq_urgent(rt_mq_t mq, const void *buffer, rt_size_t size)
 {
@@ -3936,7 +3936,7 @@ RTM_EXPORT(rt_mq_urgent);
  *
  * @note     If a message is available (entry > 0), the caller receives it and returns the copied length (> 0).
  *           If the queue is empty, the caller blocks until a message arrives or timeout elapses (-RT_ETIMEOUT).
- * @note     中文：buffer 为出参缓冲区，size 为其容量；返回 len 为实际拷贝字节数（不超过单条消息长度与 size）。
+ * @note     buffer 为出参缓冲区，size 为其容量；返回 len 为实际拷贝字节数（不超过单条消息长度与 size）。
  *           entry==0 且 timeout==0 返回 -RT_ETIMEOUT。取消息后槽还回 msg_queue_free，并可能唤醒阻塞的发送线程。
  *           prio 仅在 RT_USING_MESSAGEQUEUE_PRIORITY 且非 RT_NULL 时写入消息优先级。
  *
@@ -4187,7 +4187,7 @@ rt_ssize_t rt_mq_recv_prio(rt_mq_t mq,
  * @brief    This function will set some extra attributions of a messagequeue object.
  *
  * @note     Currently this function only supports the RT_IPC_CMD_RESET command to reset the messagequeue.
- * @note     中文：RESET 唤醒所有阻塞线程，将已排队消息逐节归还 msg_queue_free，entry 清零（与邮箱 reset 类似
+ * @note     RESET 唤醒所有阻塞线程，将已排队消息逐节归还 msg_queue_free，entry 清零（与邮箱 reset 类似
  *           但更彻底回收链表节点）。
  *
  * @param    mq is a pointer to a messagequeue object.

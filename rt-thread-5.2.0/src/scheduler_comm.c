@@ -201,7 +201,7 @@ rt_err_t rt_sched_tick_increase(rt_tick_t tick)
 
 /**
  * @brief Update priority of the target thread
- * @note 中文：调用方须持调度器锁。若线程已在就绪态则摘队、改 current_priority、
+ * @note 调用方须持调度器锁。若线程已在就绪态则摘队、改 current_priority、
  *       重算 number_mask/high_mask，将 stat 置 INIT 后经 rt_sched_insert_thread 再入队；
  *       非就绪则仅更新优先级域，避免破坏挂起/延时等状态。
  */

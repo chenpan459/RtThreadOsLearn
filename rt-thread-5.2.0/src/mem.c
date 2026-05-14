@@ -90,7 +90,7 @@ struct rt_small_mem_item
 
 /**
  * Base structure of small memory object
- * @note 中文：继承 rt_memory 做内核对象登记；heap_ptr～heap_end 为可分配区间链表。
+ * @note 继承 rt_memory 做内核对象登记；heap_ptr～heap_end 为可分配区间链表。
  */
 struct rt_small_mem
 {
@@ -188,7 +188,7 @@ static void plug_holes(struct rt_small_mem *m, struct rt_small_mem_item *mem)
  * @param size is the size of the memory.
  *
  * @return Return a pointer to the memory object. When the return value is RT_NULL, it means the init failed.
- * @note 中文：begin_addr 上先放 rt_small_mem 控制体，堆区两端各留一块头：首块为
+ * @note begin_addr 上先放 rt_small_mem 控制体，堆区两端各留一块头：首块为
  *       大空闲、尾块为 MEM_USED 哨兵，防止链表越界；返回的是 rt_smem_t 即 &parent。
  */
 rt_smem_t rt_smem_init(const char    *name,
@@ -264,7 +264,7 @@ RTM_EXPORT(rt_smem_init);
  * @param m the small memory management object.
  *
  * @return RT_EOK
- * @note 中文：从内核对象链表摘除；不释放底层 RAM，静态堆慎用 detach。
+ * @note 从内核对象链表摘除；不释放底层 RAM，静态堆慎用 detach。
  */
 rt_err_t rt_smem_detach(rt_smem_t m)
 {
@@ -292,7 +292,7 @@ RTM_EXPORT(rt_smem_detach);
  * @param size is the minimum size of the requested block in bytes.
  *
  * @return the pointer to allocated memory or NULL if no free memory was found.
- * @note 中文：从 lfree 起沿 next 找首个够大的空闲块；够大则分裂出后置空闲头，
+ * @note 从 lfree 起沿 next 找首个够大的空闲块；够大则分裂出后置空闲头，
  *       否则整块占用；返回 mem 头之后的用户对齐首址。
  */
 void *rt_smem_alloc(rt_smem_t m, rt_size_t size)
@@ -426,7 +426,7 @@ RTM_EXPORT(rt_smem_alloc);
  * @param newsize is the required new size.
  *
  * @return the changed memory block address.
- * @note 中文：newsize==0 等价 free；缩小且余量够则原地分裂并 plug_holes；
+ * @note newsize==0 等价 free；缩小且余量够则原地分裂并 plug_holes；
  *       扩大或无法原地满足则新 alloc + memcpy + free 旧块。
  */
 void *rt_smem_realloc(rt_smem_t m, void *rmem, rt_size_t newsize)
@@ -522,7 +522,7 @@ RTM_EXPORT(rt_smem_realloc);
  *        rt_smem_alloc. The released memory block is taken back to system heap.
  *
  * @param rmem the address of memory which will be released.
- * @note 中文：rmem 必须为 rt_smem_alloc 返回的对齐指针；标记空闲后减 used 并
+ * @note rmem 必须为 rt_smem_alloc 返回的对齐指针；标记空闲后减 used 并
  *       plug_holes 与邻居合并。
  */
 void rt_smem_free(void *rmem)

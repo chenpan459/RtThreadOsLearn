@@ -95,7 +95,7 @@ static void _remove_next_ptr(volatile struct rt_memheap_item *next_ptr)
  * @param   size is the size of the memheap.
  *
  * @return  RT_EOK
- * @note    中文：free_header 为空闲环哨兵；首块为整块空闲；尾块 USED 且 next/prev
+ * @note    free_header 为空闲环哨兵；首块为整块空闲；尾块 USED 且 next/prev
  *          指向首块形成物理环。信号量初值 1 作堆互斥，locked 默认 RT_FALSE。
  */
 rt_err_t rt_memheap_init(struct rt_memheap *memheap,
@@ -182,7 +182,7 @@ RTM_EXPORT(rt_memheap_init);
  * @param   heap is a pointer of memheap object.
  *
  * @return  RT_EOK
- * @note    中文：detach 信号量与内核对象；不释放 start_addr 指向的物理内存。
+ * @note    detach 信号量与内核对象；不释放 start_addr 指向的物理内存。
  */
 rt_err_t rt_memheap_detach(struct rt_memheap *heap)
 {
@@ -206,7 +206,7 @@ RTM_EXPORT(rt_memheap_detach);
  * @param   size is the minimum size of the requested block in bytes.
  *
  * @return  the pointer to allocated memory or NULL if no free memory was found.
- * @note    中文：heap->locked==RT_TRUE 时假定调用方已持堆锁，不再申请信号量。
+ * @note    heap->locked==RT_TRUE 时假定调用方已持堆锁，不再申请信号量。
  *          空闲链上顺序找首个 free_size>=size；余量够则分裂否则整块占用。
  */
 void *rt_memheap_alloc(struct rt_memheap *heap, rt_size_t size)
@@ -383,7 +383,7 @@ RTM_EXPORT(rt_memheap_alloc);
  * @param newsize is the required new size.
  *
  * @return the changed memory block address.
- * @note    中文：扩大时若后继为空闲且总空间够则原地扩展并可能再切出右邻空闲；
+ * @note    扩大时若后继为空闲且总空间够则原地扩展并可能再切出右邻空闲；
  *          否则 alloc+memcpy+free。缩小且余量够则原地分裂并把尾部挂回 free_list。
  */
 void *rt_memheap_realloc(struct rt_memheap *heap, void *ptr, rt_size_t newsize)
@@ -617,7 +617,7 @@ RTM_EXPORT(rt_memheap_realloc);
  *        rt_memheap_alloc. The released memory block is taken back to system heap.
  *
  * @param ptr the address of memory which will be released.
- * @note    中文：校验 magic 防越界写；标记空闲后与左/右空闲邻居合并；若仅与右
+ * @note    校验 magic 防越界写；标记空闲后与左/右空闲邻居合并；若仅与右
  *          合并则从原右块摘除 free 链节点。新释放块按策略插入 free_list。
  */
 void rt_memheap_free(void *ptr)
@@ -760,7 +760,7 @@ RTM_EXPORT(rt_memheap_free);
 * @param used is a pointer to get the size of memory used.
 *
 * @param max_used is a pointer to get the maximum memory used.
-* @note   中文：used = pool_size - available_size；各输出指针可为 NULL。
+* @note   used = pool_size - available_size；各输出指针可为 NULL。
 */
 void rt_memheap_info(struct rt_memheap *heap,
                      rt_size_t *total,

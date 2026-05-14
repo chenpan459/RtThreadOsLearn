@@ -94,7 +94,7 @@ INIT_EXPORT(rti_end, "6.end");
  * @brief  Onboard components initialization. In this function, the board-level
  *         initialization function will be called to complete the initialization
  *         of the on-board peripherals.
- * @note 中文：板级组件初始化，仅调用 INIT_BOARD_EXPORT 等「板级段」函数，
+ * @note 板级组件初始化，仅调用 INIT_BOARD_EXPORT 等「板级段」函数，
  *       用于时钟、引脚、早期串口等，早于设备框架与文件系统。
  */
 void rt_components_board_init(void)
@@ -122,7 +122,7 @@ void rt_components_board_init(void)
 
 /**
  * @brief  RT-Thread Components Initialization.
- * @note 中文：从板级段结束之后到 rti_end 之前，依次执行设备、组件、文件系统等阶段。
+ * @note 从板级段结束之后到 rti_end 之前，依次执行设备、组件、文件系统等阶段。
  */
 void rt_components_init(void)
 {
@@ -197,7 +197,7 @@ struct rt_thread main_thread;
  * @brief  The system main thread. In this thread will call the rt_components_init()
  *         for initialization of RT-Thread Components and call the user's programming
  *         entry main().
- * @note 中文：系统 main 线程入口；先组件初始化，SMP 时拉起从核，最后调用用户 main()。
+ * @note 系统 main 线程入口；先组件初始化，SMP 时拉起从核，最后调用用户 main()。
  *
  * @param  parameter is the arg of the thread.
  */
@@ -231,7 +231,7 @@ static void main_thread_entry(void *parameter)
 /**
  * @brief  This function will create and start the main thread, but this thread
  *         will not run until the scheduler starts.
- * @note 中文：创建并启动 "main" 线程，此处仅入就绪队列，真正运行要等 rt_system_scheduler_start()。
+ * @note 创建并启动 "main" 线程，此处仅入就绪队列，真正运行要等 rt_system_scheduler_start()。
  */
 void rt_application_init(void)
 {
@@ -259,7 +259,7 @@ void rt_application_init(void)
 /**
  * @brief  This function will call all levels of initialization functions to complete
  *         the initialization of the system, and finally start the scheduler.
- * @note 中文：内核冷启动总入口；板级与子系统初始化后创建 main/定时器/idle 等线程，再启动调度器。
+ * @note 内核冷启动总入口；板级与子系统初始化后创建 main/定时器/idle 等线程，再启动调度器。
  *       正常在 rt_system_scheduler_start() 切到首个线程后不会返回。
  *
  * @return Normally never returns. If 0 is returned, the scheduler failed.

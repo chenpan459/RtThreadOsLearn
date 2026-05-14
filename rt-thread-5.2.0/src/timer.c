@@ -86,7 +86,7 @@ static void (*rt_timer_exit_hook)(struct rt_timer *timer);
  *        which will be invoked when enter timer timeout callback function.
  *
  * @param hook is the function pointer of timer
- * @note 中文：进入 timeout 回调前调用；须短小。
+ * @note 进入 timeout 回调前调用；须短小。
  */
 void rt_timer_enter_sethook(void (*hook)(struct rt_timer *timer))
 {
@@ -98,7 +98,7 @@ void rt_timer_enter_sethook(void (*hook)(struct rt_timer *timer))
  *        invoked when exit timer timeout callback function.
  *
  * @param hook is the function pointer of timer
- * @note 中文：timeout 回调返回后调用。
+ * @note timeout 回调返回后调用。
  */
 void rt_timer_exit_sethook(void (*hook)(struct rt_timer *timer))
 {
@@ -143,7 +143,7 @@ rt_inline struct rt_spinlock* _timerlock_idx(struct rt_timer *timer)
  * @param time is the tick of timer
  *
  * @param flag the flag of timer
- * @note 中文：初始化各层 row 链表头；未激活；init_tick 为间隔/周期长度。
+ * @note 初始化各层 row 链表头；未激活；init_tick 为间隔/周期长度。
  */
 static void _timer_init(rt_timer_t timer,
                         void (*timeout)(void *parameter),
@@ -204,7 +204,7 @@ static rt_err_t _timer_list_next_timeout(rt_list_t timer_list[], rt_tick_t *time
  * @brief Remove the timer
  *
  * @param timer the point of the timer
- * @note 中文：从跳表各层摘除（与插入层数一致）。
+ * @note 从跳表各层摘除（与插入层数一致）。
  */
 rt_inline void _timer_remove(rt_timer_t timer)
 {
@@ -281,7 +281,7 @@ void rt_timer_dump(rt_list_t timer_heads[])
  *
  * @param flag is the flag of timer
  *
- * @note 中文：静态定时器；init_tick 须小于 RT_TICK_MAX/2 以便回绕比较。
+ * @note 静态定时器；init_tick 须小于 RT_TICK_MAX/2 以便回绕比较。
  */
 void rt_timer_init(rt_timer_t  timer,
                    const char *name,
@@ -308,7 +308,7 @@ RTM_EXPORT(rt_timer_init);
  * @param timer is the timer to be detached
  *
  * @return the status of detach
- * @note 中文：摘链、清 ACTIVATED、rt_object_detach；不释放 TCB 内存。
+ * @note 摘链、清 ACTIVATED、rt_object_detach；不释放 TCB 内存。
  */
 rt_err_t rt_timer_detach(rt_timer_t timer)
 {
@@ -361,7 +361,7 @@ RTM_EXPORT(rt_timer_detach);
  *        You can use multiple values with "|" logical operator.  By default, system will use the RT_TIME_FLAG_HARD_TIMER.
  *
  * @return the created timer object
- * @note 中文：堆对象；默认硬定时，可用 SOFT|THREAD 等组合；创建后须 rt_timer_start。
+ * @note 堆对象；默认硬定时，可用 SOFT|THREAD 等组合；创建后须 rt_timer_start。
  */
 rt_timer_t rt_timer_create(const char *name,
                            void (*timeout)(void *parameter),
@@ -394,7 +394,7 @@ RTM_EXPORT(rt_timer_create);
  * @param timer the timer to be deleted
  *
  * @return the operation status, RT_EOK on OK; -RT_ERROR on error
- * @note 中文：摘链后 rt_object_delete 释放整个 rt_timer。
+ * @note 摘链后 rt_object_delete 释放整个 rt_timer。
  */
 rt_err_t rt_timer_delete(rt_timer_t timer)
 {
@@ -427,7 +427,7 @@ RTM_EXPORT(rt_timer_delete);
  * @param timer the timer to be started
  *
  * @return the operation status, RT_EOK on OK, -RT_ERROR on error
- * @note 中文：timeout_tick = rt_tick_get()+init_tick；按到期时刻插入跳表，同 tick
+ * @note timeout_tick = rt_tick_get()+init_tick；按到期时刻插入跳表，同 tick
  *       后到者排在后以便先注册先触发。
  */
 static rt_err_t _timer_start(rt_list_t *timer_list, rt_timer_t timer)
@@ -508,7 +508,7 @@ static rt_err_t _timer_start(rt_list_t *timer_list, rt_timer_t timer)
  *
  * @param timer_list The timer list to check.
  * @param lock The lock for the timer list.
- * @note 中文：对到期项先移入临时链再解锁调回调，避免持锁执行用户代码；周期
+ * @note 对到期项先移入临时链再解锁调回调，避免持锁执行用户代码；周期
  *       定时器在回调后若仍激活则重新 start。
  */
 static void _timer_check(rt_list_t *timer_list, struct rt_spinlock *lock)
@@ -584,7 +584,7 @@ static void _timer_check(rt_list_t *timer_list, struct rt_spinlock *lock)
  * @param timer the timer to be started
  *
  * @return the operation status, RT_EOK on OK, -RT_ERROR on error
- * @note 中文：THREAD_TIMER 时先 rt_sched_lock 并 rt_sched_thread_timer_start 再插表；
+ * @note THREAD_TIMER 时先 rt_sched_lock 并 rt_sched_thread_timer_start 再插表；
  *       与 thread_timer 共用同一 rt_timer 结构。
  */
 rt_err_t rt_timer_start(rt_timer_t timer)
@@ -650,7 +650,7 @@ RTM_EXPORT(rt_timer_start);
  * @param timer the timer to be stopped
  *
  * @return the operation status, RT_EOK on OK, -RT_ERROR on error
- * @note 中文：未激活返回 -RT_ERROR；摘链并清 ACTIVATED。
+ * @note 未激活返回 -RT_ERROR；摘链并清 ACTIVATED。
  */
 rt_err_t rt_timer_stop(rt_timer_t timer)
 {
@@ -690,7 +690,7 @@ RTM_EXPORT(rt_timer_stop);
  * @param arg the argument
  *
  * @return the status of control
- * @note 中文：SET_TIME 若已运行会先 stop；GET_REMAIN_TIME 写入的是绝对到期 tick
+ * @note SET_TIME 若已运行会先 stop；GET_REMAIN_TIME 写入的是绝对到期 tick
  *       (timeout_tick)，非剩余 tick 数。
  */
 rt_err_t rt_timer_control(rt_timer_t timer, int cmd, void *arg)
@@ -775,7 +775,7 @@ RTM_EXPORT(rt_timer_control);
  *        the corresponding timeout function will be invoked.
  *
  * @note This function shall be invoked in operating system timer interrupt.
- * @note 中文：须在中断嵌套内调用；SMP 上仅 cpu0 跑硬表扫描；软定时到点则 sem 唤醒
+ * @note 须在中断嵌套内调用；SMP 上仅 cpu0 跑硬表扫描；软定时到点则 sem 唤醒
  *       timer 线程。
  */
 void rt_timer_check(void)
@@ -809,7 +809,7 @@ void rt_timer_check(void)
  * @brief This function will return the next timeout tick in the system.
  *
  * @return the next timeout tick in the system
- * @note 中文：硬表与软表各取最小到期 tick 再取更小者，供 tickless 等配置 HW 定时器。
+ * @note 硬表与软表各取最小到期 tick 再取更小者，供 tickless 等配置 HW 定时器。
  */
 rt_tick_t rt_timer_next_timeout_tick(void)
 {
@@ -836,7 +836,7 @@ rt_tick_t rt_timer_next_timeout_tick(void)
  * @brief System timer thread entry
  *
  * @param parameter is the arg of the thread
- * @note 中文：循环检查软定时并阻塞在信号量上，与 tick ISR 释放成对。
+ * @note 循环检查软定时并阻塞在信号量上，与 tick ISR 释放成对。
  */
 static void _timer_thread_entry(void *parameter)
 {
@@ -854,7 +854,7 @@ static void _timer_thread_entry(void *parameter)
  * @ingroup group_SystemInit
  *
  * @brief This function will initialize system timer
- * @note 中文：初始化硬定时跳表与自旋锁（非 ALL_SOFT 时）。
+ * @note 初始化硬定时跳表与自旋锁（非 ALL_SOFT 时）。
  */
 void rt_system_timer_init(void)
 {
@@ -874,7 +874,7 @@ void rt_system_timer_init(void)
  * @ingroup group_SystemInit
  *
  * @brief This function will initialize system timer thread
- * @note 中文：软定时链表、信号量（容量 1）、内核线程 timer 启动。
+ * @note 软定时链表、信号量（容量 1）、内核线程 timer 启动。
  */
 void rt_system_timer_thread_init(void)
 {

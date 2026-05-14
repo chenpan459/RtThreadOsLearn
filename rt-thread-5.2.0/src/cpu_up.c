@@ -27,7 +27,7 @@ static struct rt_cpu _cpu;
  * @brief   Initialize a static spinlock object.
  *
  * @param   lock is a pointer to the spinlock to initialize.
- * @note    中文：UP 无硬件自旋语义，空操作即可保持与 MP 相同的调用点。
+ * @note    UP 无硬件自旋语义，空操作即可保持与 MP 相同的调用点。
  */
 void rt_spin_lock_init(struct rt_spinlock *lock)
 {
@@ -39,7 +39,7 @@ void rt_spin_lock_init(struct rt_spinlock *lock)
  *
  * @note    If the spinlock is locked, the current CPU will keep polling the spinlock state
  *          until the spinlock is unlocked.
- * @note    中文：等价于禁止线程抢占（rt_enter_critical），无跨核自旋；与 MP 版 API 形态一致便于共用代码。
+ * @note    等价于禁止线程抢占（rt_enter_critical），无跨核自旋；与 MP 版 API 形态一致便于共用代码。
  *
  * @param   lock is a pointer to the spinlock.
  */
@@ -53,7 +53,7 @@ void rt_spin_lock(struct rt_spinlock *lock)
  * @brief   This function will unlock the spinlock, will unlock the thread scheduler.
  *
  * @param   lock is a pointer to the spinlock.
- * @note    中文：按调试信息记录的临界区嵌套安全退出，不操作硬件 spin。
+ * @note    按调试信息记录的临界区嵌套安全退出，不操作硬件 spin。
  */
 void rt_spin_unlock(struct rt_spinlock *lock)
 {
@@ -67,7 +67,7 @@ void rt_spin_unlock(struct rt_spinlock *lock)
  *
  * @note    If the spinlock is locked, the current CPU will keep polling the spinlock state
  *          until the spinlock is unlocked.
- * @note    中文：关中断 + 禁止抢占；返回 level 供 irqrestore 配对（UP 下常用作短临界区保护）。
+ * @note    关中断 + 禁止抢占；返回 level 供 irqrestore 配对（UP 下常用作短临界区保护）。
  *
  * @param   lock is a pointer to the spinlock.
  *
@@ -90,7 +90,7 @@ rt_base_t rt_spin_lock_irqsave(struct rt_spinlock *lock)
  * @param   lock is a pointer to the spinlock.
  *
  * @param   level is interrupt status returned by rt_spin_lock_irqsave().
- * @note    中文：先退出调度临界区再恢复中断，与 rt_spin_lock_irqsave 严格配对。
+ * @note    先退出调度临界区再恢复中断，与 rt_spin_lock_irqsave 严格配对。
  */
 void rt_spin_unlock_irqrestore(struct rt_spinlock *lock, rt_base_t level)
 {
@@ -104,7 +104,7 @@ void rt_spin_unlock_irqrestore(struct rt_spinlock *lock, rt_base_t level)
  * @brief   This fucntion will return current cpu object.
  *
  * @return  Return a pointer to the current cpu object.
- * @note    中文：恒为 &_cpu，与 SMP 下按 rt_hw_cpu_id() 索引的行为对应。
+ * @note    恒为 &_cpu，与 SMP 下按 rt_hw_cpu_id() 索引的行为对应。
  */
 struct rt_cpu *rt_cpu_self(void)
 {
@@ -117,7 +117,7 @@ struct rt_cpu *rt_cpu_self(void)
  * @param   index is the index of target cpu object.
  *
  * @return  Return a pointer to the cpu object corresponding to index.
- * @note    中文：仅 index==0 合法；其它下标返回 RT_NULL，表示无多核。
+ * @note    仅 index==0 合法；其它下标返回 RT_NULL，表示无多核。
  */
 struct rt_cpu *rt_cpu_index(int index)
 {

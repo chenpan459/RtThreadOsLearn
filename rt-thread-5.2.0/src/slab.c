@@ -231,7 +231,7 @@ struct rt_slab
  * @param m the slab memory management object.
  *
  * @param npages the number of pages.
- * @note 中文：在 page_list 上找首个 page>=npages 的块；更大则分裂尾部为新结点。
+ * @note 在 page_list 上找首个 page>=npages 的块；更大则分裂尾部为新结点。
  */
 void *rt_slab_page_alloc(rt_slab_t m, rt_size_t npages)
 {
@@ -273,7 +273,7 @@ void *rt_slab_page_alloc(rt_slab_t m, rt_size_t npages)
  * @param addr is the head address of first page.
  *
  * @param npages is the number of pages.
- * @note 中文：尝试与相邻物理页块合并后插入有序链表，减少碎片。
+ * @note 尝试与相邻物理页块合并后插入有序链表，减少碎片。
  */
 void rt_slab_page_free(rt_slab_t m, void *addr, rt_size_t npages)
 {
@@ -339,7 +339,7 @@ static void rt_slab_page_init(struct rt_slab *slab, void *addr, rt_size_t npages
  * @param size is the size of the memory.
  *
  * @return Return a pointer to the slab memory object.
- * @note 中文：控制结构 rt_slab 从 begin_addr 对齐放置；可用堆为页对齐区间；
+ * @note 控制结构 rt_slab 从 begin_addr 对齐放置；可用堆为页对齐区间；
  *       再划出 memusage 区与页分配器初始整块。zone_size 在 MIN/MAX 间按总堆放大。
  */
 rt_slab_t rt_slab_init(const char *name, void *begin_addr, rt_size_t size)
@@ -410,7 +410,7 @@ RTM_EXPORT(rt_slab_init);
  * @param m the slab memory management object.
  *
  * @return RT_EOK
- * @note 中文：仅从内核对象管理摘除，不释放底层堆内存（静态 slab 场景）。
+ * @note 仅从内核对象管理摘除，不释放底层堆内存（静态 slab 场景）。
  */
 rt_err_t rt_slab_detach(rt_slab_t m)
 {
@@ -507,7 +507,7 @@ rt_inline int zoneindex(rt_size_t *bytes)
  * @param size is the size of memory to be allocated.
  *
  * @return the allocated memory.
- * @note 中文：size>=zone_limit 走 LARGE 页分配；否则 zoneindex 后从 zone_array
+ * @note size>=zone_limit 走 LARGE 页分配；否则 zoneindex 后从 zone_array
  *       或新 zone 取一块；满 zone 会从链头摘除直至再次 free。
  */
 void *rt_slab_alloc(rt_slab_t m, rt_size_t size)
@@ -688,7 +688,7 @@ RTM_EXPORT(rt_slab_alloc);
  * @param size is the new size of memory block.
  *
  * @return the allocated memory.
- * @note 中文：同 zone 同 chunksize 则原地返回；否则新 alloc、memcpy 较小边、再 free。
+ * @note 同 zone 同 chunksize 则原地返回；否则新 alloc、memcpy 较小边、再 free。
  */
 void *rt_slab_realloc(rt_slab_t m, void *ptr, rt_size_t size)
 {
@@ -758,7 +758,7 @@ RTM_EXPORT(rt_slab_realloc);
  *
  * @param m the slab memory management object.
  * @param ptr is the address of memory which will be released
- * @note 中文：LARGE 整段 rt_slab_page_free；SMALL 头插 z_freechunk，必要时 zone
+ * @note LARGE 整段 rt_slab_page_free；SMALL 头插 z_freechunk，必要时 zone
  *       重回 zone_array 或进入 zone_free 并在超阈值时整 zone 归还页。
  */
 void rt_slab_free(rt_slab_t m, void *ptr)
