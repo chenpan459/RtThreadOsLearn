@@ -1,0 +1,18 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+parent_drv = os.path.normpath(os.path.join(cwd, '../../qemu-vexpress-a9/drivers'))
+
+src = [
+    os.path.join(parent_drv, 'board.c'),
+    os.path.join(parent_drv, 'serial.c'),
+    os.path.join(parent_drv, 'drv_timer.c'),
+    os.path.join(parent_drv, 'qboot_vexpress.c'),
+]
+
+path = [cwd, parent_drv]
+objs = [DefineGroup('Drivers', src, depend=[''], CPPPATH=path)]
+objs.extend(SConscript(os.path.join(parent_drv, 'fal', 'SConscript')))
+
+Return('objs')

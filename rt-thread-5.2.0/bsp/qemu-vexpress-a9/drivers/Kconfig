@@ -59,6 +59,20 @@ config BSP_DRV_EMAC
     select RT_USING_POSIX_SOCKET
     default n
 
+menu "OTA / FAL (QBoot partition layout)"
+
+    config BSP_USING_NOR_FLASH0
+        bool "Enable NOR Flash0 FAL device (QEMU pflash @ 0x40000000)"
+        default y
+
+    config BSP_USING_FAL
+        bool "Enable FAL partition table"
+        select RT_USING_FAL
+        default y
+        depends on BSP_USING_NOR_FLASH0
+
+endmenu
+
 config BSP_DRV_AUDIO
     bool "Audio driver"
     select RT_USING_AUDIO

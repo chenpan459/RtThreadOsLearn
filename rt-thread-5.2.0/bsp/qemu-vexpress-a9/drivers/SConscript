@@ -3,6 +3,9 @@ from building import *
 cwd  = GetCurrentDir()
 src  = Glob('*.c')
 list = os.listdir(cwd)
+
+if not GetDepend('PKG_USING_QBOOT'):
+    SrcRemove(src, ['qboot_vexpress.c'])
 CPPPATH = [cwd]
 objs = []
 

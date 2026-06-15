@@ -1,8 +1,12 @@
 import os
 from building import *
 
-cwd     = GetCurrentDir()
-src     = Glob('*.c') + Glob('*.cpp')
+cwd = GetCurrentDir()
+src = Glob('*.c') + Glob('*.cpp')
+
+if not GetDepend(['RT_USING_FAL']):
+    SrcRemove(src, ['ota_partition.c'])
+
 CPPPATH = [cwd]
 
 group = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH)

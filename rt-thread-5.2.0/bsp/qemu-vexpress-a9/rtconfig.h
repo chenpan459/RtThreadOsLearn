@@ -337,6 +337,7 @@
 #define RT_USING_ADT_BITMAP
 #define RT_USING_ADT_HASHMAP
 #define RT_USING_ADT_REF
+#define RT_USING_RYM
 /* end of Utilities */
 
 /* Memory management */
@@ -576,6 +577,21 @@
 #define RT_USING_UART0
 #define RT_USING_UART1
 #define BSP_DRV_EMAC
+
+/* OTA / FAL (QBoot-style NOR partitions) */
+#define BSP_USING_NOR_FLASH0
+#define BSP_USING_FAL
+#define RT_USING_FAL
+#define FAL_PART_HAS_TABLE_CFG
+#define FAL_DEBUG 0
+#define PKG_USING_OTA_DOWNLOADER
+#define PKG_USING_YMODEM_OTA
+#define PKG_USING_OTA_DOWNLOADER_V100
+#define PKG_USING_CRCLIB
+#define PKG_USING_CRCLIB_V102
+#define CRCLIB_USING_CRC32
+#define CRC32_USING_CONST_TABLE
+
 /* end of Onboard Peripheral Drivers */
 /* end of Hardware Drivers Config */
 

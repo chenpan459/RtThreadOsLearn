@@ -84,6 +84,9 @@ SECTIONS
         *(.data.*)
     }
     __data_end = .;
+    _sdata = __data_start;
+    _edata = __data_end;
+    _sidata = __data_start;
 
     . = ALIGN(4);
     __bss_start = .;

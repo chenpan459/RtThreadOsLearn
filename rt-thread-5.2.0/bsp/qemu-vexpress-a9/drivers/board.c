@@ -30,7 +30,14 @@ struct mem_desc platform_mem_desc[] = {
 };
 #else
 struct mem_desc platform_mem_desc[] = {
+#ifdef BSP_USING_NOR_FLASH0
+    /* Split device window so NOR @ 0x40000000 is NORMAL_MEM without overlapping DEVICE_MEM */
+    {0x10000000, 0x40000000, 0x10000000, DEVICE_MEM},
+    {0x40000000, 0x41000000, 0x40000000, NORMAL_MEM}, /* NOR0: boot XIP + FAL */
+    {0x41000000, 0x50000000, 0x41000000, DEVICE_MEM},
+#else
     {0x10000000, 0x50000000, 0x10000000, DEVICE_MEM},
+#endif
     {0x60000000, 0x70000000, 0x60000000, NORMAL_MEM}
 };
 #endif

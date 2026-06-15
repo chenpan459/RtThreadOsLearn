@@ -1,0 +1,42 @@
+import os
+import sys
+import rtconfig
+
+if os.getenv('RTT_ROOT'):
+    RTT_ROOT = os.getenv('RTT_ROOT')
+else:
+    RTT_ROOT = os.path.normpath(os.getcwd() + '/../../')
+
+sys.path = sys.path + [os.path.join(RTT_ROOT, 'tools')]
+from building import *
+
+TARGET = 'qboot.' + rtconfig.TARGET_EXT
+
+DefaultEnvironment(tools=[])
+env = Environment(tools=['mingw'],
+    AS=rtconfig.AS, ASFLAGS=rtconfig.AFLAGS,
+    CC=rtconfig.CC, CFLAGS=rtconfig.CFLAGS,
+    CXX=rtconfig.CXX, CXXFLAGS=rtconfig.CXXFLAGS,
+    AR=rtconfig.AR, ARFLAGS='-rc',
+    LINK=rtconfig.LINK, LINKFLAGS=rtconfig.LFLAGS)
+env.PrependENVPath('PATH', rtconfig.EXEC_PATH)
+env['ASCOM'] = env['ASPPCOM']
+
+Export('RTT_ROOT')
+Export('rtconfig')
+
+PARENT_DRV = os.path.abspath('../qemu-vexpress-a9/drivers')
+BOOT_BOARD = os.path.join(os.getcwd(), 'board')
+env.Append(CPPPATH=[
+    BOOT_BOARD,
+    PARENT_DRV,
+    os.path.join(RTT_ROOT, 'components', 'mm'),
+    os.path.join(RTT_ROOT, 'components', 'utilities', 'libadt', 'avl'),
+])
+
+objs = PrepareBuilding(env, RTT_ROOT)
+
+objs.extend(SConscript(os.path.join(os.getcwd(), 'board', 'boot_pkgs.SConscript'),
+                       variant_dir='build/boot_pkgs', duplicate=0))
+
+DoBuilding(TARGET, objs)

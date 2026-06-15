@@ -1,0 +1,11 @@
+mainmenu "RT-Thread QBoot Project Configuration"
+
+BSP_DIR := .
+
+RTT_DIR := ../../../..
+
+PKGS_DIR := ../qemu-vexpress-a9/packages
+
+source "$(RTT_DIR)/Kconfig"
+osource "$PKGS_DIR/Kconfig"
+source "$(BSP_DIR)/../qemu-vexpress-a9/drivers/Kconfig"
