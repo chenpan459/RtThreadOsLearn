@@ -51,6 +51,8 @@ _reset:
 
     /* exit hyp mode  */
     bl init_cpu_mode
+    /* copy .data from load (ROM/XIP) to VMA (RAM) when LMA != VMA */
+    bl init_kernel_data
     /* clear bss section */
     bl init_kernel_bss
     /* Initializes the assembly environment stack  */
@@ -71,6 +73,31 @@ init_cpu_stack_early:
     mcr p15, 0, r4, c1, c0, 2
 #endif
 
+    mov pc, lr
+
+init_kernel_data:
+
+    /* enable I cache + branch prediction */
+    mrc p15, 0, r0, c1, c0, 0
+    orr     r0, r0, #(1<<12)
+    orr     r0, r0, #(1<<11)
+    mcr p15, 0, r0, c1, c0, 0
+
+    get_phy r1, _sdata, pv_off
+    get_phy r2, _edata, pv_off
+    get_phy r3, _sidata, pv_off
+
+    cmp     r1, r3
+    beq     data_init_done
+
+data_init_loop:
+    cmp     r1, r2
+    bhs     data_init_done
+    ldr     r0, [r3], #4
+    str     r0, [r1], #4
+    b       data_init_loop
+
+data_init_done:
     mov pc, lr
 
 init_kernel_bss:

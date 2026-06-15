@@ -97,4 +97,20 @@ qemu-system-arm -M vexpress-a9 -smp cpus=2 -kernel rtthread.elf -nographic -sd s
 
 ---
 
+
+# 1. 编译 App
+cd rt-thread-5.2.0/bsp/qemu-vexpress-a9
+scons -c && scons
+
+# 2. 编译 Boot
+cd ../qemu-vexpress-a9-boot
+scons -c && scons
+
+# 3. 生成并同步 flash 镜像（重要！）
+./flash_image.sh
+
+# 4. 启动 QBoot 链式启动
+cd ../qemu-vexpress-a9
+./qemu-nographic.sh
+
 *文档路径：`doc/RT-Thread-5.2.0-qemu-vexpress-a9-运行说明.md`*
