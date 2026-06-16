@@ -1,4 +1,4 @@
-# Minimal QBoot packages (from parent qemu-vexpress-a9/packages)
+# QBoot 相关包：源码在 ../qemu-vexpress-a9/packages，由本工程 SConscript 编入 qboot.elf
 from building import *
 import os
 
@@ -16,9 +16,10 @@ objs.append(DefineGroup(
 
 objs.extend(SConscript(
     os.path.join(parent_pkgs, 'quicklz-v1.0.1', 'SConscript'),
-    variant_dir='build/packages/quicklz-v1.0.1',
+    variant_dir='build/boot_pkgs/quicklz-v1.0.1',
     duplicate=0))
 
+# 仅 qboot 核心 + quicklz 适配；勿用包内 Glob（会编入 qboot_stm32.c 等）
 qboot = os.path.join(parent_pkgs, 'qboot-latest')
 objs.append(DefineGroup(
     'qboot',
@@ -27,6 +28,7 @@ objs.append(DefineGroup(
         os.path.join(qboot, 'src', 'qboot_quicklz.c'),
     ],
     depend=['PKG_USING_QBOOT'],
-    CPPPATH=[os.path.join(qboot, 'inc')]))
+    CPPPATH=[os.path.join(qboot, 'inc')],
+    LOCAL_CPPPATH=[os.path.join(qboot, 'inc')]))
 
 Return('objs')
